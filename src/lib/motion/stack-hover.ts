@@ -80,6 +80,28 @@ export function stackHover(node: HTMLElement) {
 
 	gsap.set(node, { transformPerspective: 900, transformStyle: 'preserve-3d' });
 
+	/**
+	 * A slow idle sway, each card at its own speed and direction.
+	 *
+	 * Timing comes from CSS custom properties the server already computed from
+	 * the photo id, so the motion is stable across reloads rather than
+	 * re-randomising. It rides on `.card`, which GSAP owns outright, so it
+	 * composes with the magnet instead of fighting the fan on `.layer`.
+	 */
+	const drifts = cards.map((card) => {
+		const style = getComputedStyle(card.parentElement ?? card);
+		const seconds = parseFloat(style.getPropertyValue('--drift')) || 11;
+		const direction = parseFloat(style.getPropertyValue('--drift-dir')) || 1;
+
+		return gsap.to(card, {
+			rotation: 1.1 * direction,
+			duration: seconds,
+			ease: 'sine.inOut',
+			repeat: -1,
+			yoyo: true
+		});
+	});
+
 	function onMove(event: PointerEvent) {
 		const rect = node.getBoundingClientRect();
 		// -0.5 … 0.5, relative to the centre of the stack.
@@ -124,13 +146,17 @@ export function stackHover(node: HTMLElement) {
 
 	const handle: StackHoverHandle = {
 		resetTilt() {
+			// The drift is paused as well as zeroed, or it would keep rotating the
+			// card between the measurement and the clone being taken.
+			for (const drift of drifts) drift.pause();
 			gsap.set(node, { rotationX: 0, rotationY: 0 });
-			gsap.set(cards, { x: 0, y: 0, z: 0 });
+			gsap.set(cards, { x: 0, y: 0, z: 0, rotation: 0 });
 		},
 		destroy() {
 			node.removeEventListener('pointermove', onMove);
 			node.removeEventListener('pointerenter', onEnter);
 			node.removeEventListener('pointerleave', onLeave);
+			for (const drift of drifts) drift.kill();
 			gsap.killTweensOf([node, ...cards]);
 			handles.delete(node);
 		}

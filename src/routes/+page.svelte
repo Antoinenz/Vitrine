@@ -11,6 +11,42 @@
 	const name = $derived(data.profile?.displayName || 'Vitrine');
 
 	/**
+	 * A stable pseudo-random number in [0, 1) derived from a photo's id.
+	 *
+	 * Deterministic on purpose: `Math.random()` would produce different values on
+	 * the server and the client, so every card would jump to a new angle the
+	 * moment the page hydrated. Deriving from the id means the arrangement is
+	 * fixed for a given photograph and identical on both sides.
+	 */
+	function seeded(id: string, salt: number): number {
+		let h = (2166136261 ^ salt) >>> 0;
+		for (let i = 0; i < id.length; i++) {
+			h ^= id.charCodeAt(i);
+			h = Math.imul(h, 16777619);
+		}
+		return ((h >>> 0) % 100000) / 100000;
+	}
+
+	/** Symmetric variation: -1 … 1. */
+	const spread = (id: string, salt: number) => seeded(id, salt) * 2 - 1;
+
+	/**
+	 * Each print is dropped on the pile at its own angle and slightly off centre,
+	 * rather than fanned by index from one corner. Rotation is about the middle
+	 * of the card, so the pile splays both ways instead of hinging from a point.
+	 */
+	function scatter(id: string) {
+		return {
+			rotate: `${(spread(id, 1) * 7).toFixed(2)}deg`,
+			dx: `${(spread(id, 2) * 9).toFixed(1)}px`,
+			dy: `${(spread(id, 3) * 7).toFixed(1)}px`,
+			// Seconds per drift cycle, and which way it leans first.
+			drift: 9 + seeded(id, 4) * 7,
+			driftDir: seeded(id, 5) < 0.5 ? -1 : 1
+		};
+	}
+
+	/**
 	 * Warms the destination on hover, so the click has both the page data and the
 	 * grid's images already in cache. The stack and the grid request identical
 	 * derivative URLs, which is what makes the second half of this work.
@@ -120,10 +156,16 @@
 						{@attach (node) => returnTransition(node, collection.id)}
 					>
 						{#each collection.stack as photo, i (photo.id)}
+							{@const s = scatter(photo.id)}
 							<div
 								class="layer"
 								data-photo={photo.id}
 								style:--i={i}
+								style:--rot={s.rotate}
+								style:--dx={s.dx}
+								style:--dy={s.dy}
+								style:--drift="{s.drift}s"
+								style:--drift-dir={s.driftDir}
 								style:z-index={collection.stack.length - i}
 							>
 								<div class="card">
@@ -261,18 +303,18 @@
 	 */
 	.layer {
 		transition: transform var(--duration-hover) var(--ease-out-soft);
-		/* Fanned down and to the right, each card further along and more rotated
-		   than the one above it. */
-		transform: translate3d(
-				calc(var(--stack-offset) * var(--i)),
-				calc(var(--stack-offset) * var(--i) * 0.7),
-				0
-			)
-			rotate(calc(var(--stack-rotation) * var(--i)));
+		/*
+		 * Scattered about the centre rather than fanned from a corner: each card
+		 * carries its own angle and a small offset, both derived from its photo id.
+		 * `transform-origin` stays at the default centre, so a card rotating left
+		 * and one rotating right splay symmetrically instead of hinging from the
+		 * same point.
+		 */
+		transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--rot));
 	}
 
 	.card {
-		border-radius: 12px;
+		/* Square corners — a print has edges, not radii. */
 		overflow: hidden;
 		background: var(--color-surface-raised);
 		box-shadow:
@@ -300,14 +342,11 @@
 	 * respond without JavaScript, and it collapses to nothing under reduced
 	 * motion via the global rule in layout.css.
 	 */
+	/* Hovering pushes the pile further apart along the angles it already has. */
 	.stack-link:hover .layer,
 	.stack-link:focus-visible .layer {
-		transform: translate3d(
-				calc(var(--stack-offset) * var(--i) * 2.1),
-				calc(var(--stack-offset) * var(--i) * 1.1),
-				0
-			)
-			rotate(calc(var(--stack-rotation) * var(--i) * 1.55));
+		transform: translate3d(calc(var(--dx) * 2.4), calc(var(--dy) * 2.4), 0)
+			rotate(calc(var(--rot) * 1.5));
 	}
 
 	.caption {

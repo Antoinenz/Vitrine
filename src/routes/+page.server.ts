@@ -60,15 +60,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.map((collection) => {
 			const owned = byCollection.get(collection.id) ?? [];
 
-			// The cover leads the stack; the rest follow in display order. These are
-			// the same photos, in the same order, that begin the collection grid —
-			// which is what lets the transition match them up later.
-			const ordered = collection.coverPhotoId
-				? [
-						...owned.filter((p) => p.id === collection.coverPhotoId),
-						...owned.filter((p) => p.id !== collection.coverPhotoId)
-					]
-				: owned;
+			/**
+			 * The stack shows the grid's opening photographs, in the grid's own
+			 * order — no cover-first reshuffle.
+			 *
+			 * Leading with the cover meant the stack and the grid disagreed about
+			 * order whenever the cover wasn't already first, so opening a collection
+			 * visibly rearranged the photographs even though each one flew to the
+			 * right place. Artists control the face of a collection by ordering it;
+			 * `coverPhotoId` remains for social preview images.
+			 */
+			const ordered = owned;
 
 			return {
 				id: collection.id,

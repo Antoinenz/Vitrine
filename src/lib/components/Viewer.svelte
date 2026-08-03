@@ -242,6 +242,29 @@
 		containerEl?.focus();
 	});
 
+	/**
+	 * Holds the page still behind the viewer.
+	 *
+	 * Without this the gallery scrolls under the overlay on a wheel or trackpad
+	 * gesture, and its scrollbar stays visible down the side of a full-screen
+	 * photograph. The bar's width is replaced with padding so locking doesn't
+	 * shift the layout sideways as it disappears.
+	 */
+	$effect(() => {
+		const { style } = document.body;
+		const previousOverflow = style.overflow;
+		const previousPadding = style.paddingRight;
+		const barWidth = window.innerWidth - document.documentElement.clientWidth;
+
+		style.overflow = 'hidden';
+		if (barWidth > 0) style.paddingRight = `${barWidth}px`;
+
+		return () => {
+			style.overflow = previousOverflow;
+			style.paddingRight = previousPadding;
+		};
+	});
+
 	function onKeyDown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'ArrowRight':

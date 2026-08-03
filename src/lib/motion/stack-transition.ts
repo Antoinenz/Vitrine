@@ -104,17 +104,33 @@ function capture(sources: HTMLElement[], collectionId: string): void {
 		// Entirely off screen — animating it would just fly in from nowhere.
 		if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
 
+		/**
+		 * Rotation has to survive onto the clone.
+		 *
+		 * `getBoundingClientRect` returns the *axis-aligned box* of a rotated
+		 * element, which is larger than the element itself. Positioning a clone
+		 * with that box and no rotation makes it visibly bigger and square-on
+		 * compared to the tilted card it replaces — an obvious jump at the moment
+		 * of the click, and worse the more the cards are angled.
+		 *
+		 * So the clone is given the source's untransformed size, centred on the
+		 * same point, and re-rotated by the angle extracted from the computed
+		 * matrix. Flip then straightens it out as it lands in the grid.
+		 */
+		const matrix = new DOMMatrixReadOnly(getComputedStyle(source).transform);
+		const angle = (Math.atan2(matrix.b, matrix.a) * 180) / Math.PI;
+		const width = source.offsetWidth || rect.width;
+		const height = source.offsetHeight || rect.height;
+
 		const clone = source.cloneNode(true) as HTMLElement;
 		Object.assign(clone.style, {
 			position: 'fixed',
-			left: `${rect.left}px`,
-			top: `${rect.top}px`,
-			width: `${rect.width}px`,
-			height: `${rect.height}px`,
+			left: `${rect.left + rect.width / 2 - width / 2}px`,
+			top: `${rect.top + rect.height / 2 - height / 2}px`,
+			width: `${width}px`,
+			height: `${height}px`,
 			margin: '0',
-			// The clone is already positioned where the source's transform put it;
-			// re-applying that transform would double the offset.
-			transform: 'none',
+			transform: angle ? `rotate(${angle}deg)` : 'none',
 			transition: 'none'
 		});
 		clone.setAttribute('aria-hidden', 'true');
