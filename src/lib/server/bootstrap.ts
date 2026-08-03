@@ -45,7 +45,7 @@ async function seedOwner(): Promise<void> {
 
 	if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
 		console.warn(
-			'[gallery] No user accounts exist and ADMIN_EMAIL/ADMIN_PASSWORD are unset.\n' +
+			'[vitrine] No user accounts exist and ADMIN_EMAIL/ADMIN_PASSWORD are unset.\n' +
 				'          Set them and restart to create the owner account.'
 		);
 		return;
@@ -79,6 +79,6 @@ async function seedOwner(): Promise<void> {
 		tx.insert(profiles).values({ userId: id, displayName: '' }).run();
 	});
 
-	console.log(`[gallery] Created owner account ${ADMIN_EMAIL}. You'll be asked to`);
+	console.log(`[vitrine] Created owner account ${ADMIN_EMAIL}. You'll be asked to`);
 	console.log('          choose a new password at first login.');
 }

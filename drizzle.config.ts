@@ -11,7 +11,7 @@ export default defineConfig({
 	schema: './src/lib/server/db/schema.ts',
 	out: './drizzle',
 	dialect: 'sqlite',
-	dbCredentials: { url: process.env.DATABASE_URL ?? './data/gallery.db' },
+	dbCredentials: { url: process.env.DATABASE_URL ?? './data/vitrine.db' },
 	verbose: true,
 	strict: true
 });

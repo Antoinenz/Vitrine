@@ -30,7 +30,7 @@ export const DATA_DIR = resolve(str('DATA_DIR', './data'));
  * `DATABASE_URL` may be absolute or relative; when relative it is resolved
  * inside DATA_DIR so a single volume mount captures database and images alike.
  */
-const rawDbUrl = str('DATABASE_URL', 'gallery.db');
+const rawDbUrl = str('DATABASE_URL', 'vitrine.db');
 export const DATABASE_PATH = isAbsolute(rawDbUrl) ? rawDbUrl : join(DATA_DIR, rawDbUrl);
 
 export const ORIGINALS_DIR = join(DATA_DIR, 'originals');

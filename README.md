@@ -1,4 +1,6 @@
-# Gallery
+# Vitrine
+
+_A vitrine is the glass case a gallery shows its work in._
 
 A self-hosted photo gallery for a single photographer. You log in, upload photos
 into collections and choose what's public; visitors get your page — a short
@@ -53,8 +55,8 @@ directory to back up.
 Requires [Docker](https://docs.docker.com/get-docker/).
 
 ```sh
-git clone https://github.com/Antoinenz/gallery.git
-cd gallery
+git clone https://github.com/Antoinenz/vitrine.git
+cd vitrine
 ```
 
 Edit `docker-compose.yml` and set `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `ORIGIN`,
@@ -134,7 +136,7 @@ npm run dev
 Tests want a scratch data directory so they don't touch your dev database:
 
 ```sh
-DATA_DIR=/tmp/gallery-test npx vitest run
+DATA_DIR=/tmp/vitrine-test npx vitest run
 ```
 
 Migrations are **generated** by drizzle-kit but **applied by the app** at

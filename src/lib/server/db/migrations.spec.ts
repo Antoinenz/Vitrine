@@ -10,7 +10,7 @@ import { users, profiles, collections, photos, derivatives } from './schema';
 let dir: string;
 
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), 'gallery-test-'));
+	dir = mkdtempSync(join(tmpdir(), 'vitrine-test-'));
 });
 
 afterEach(() => {

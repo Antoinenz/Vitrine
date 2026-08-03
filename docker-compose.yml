@@ -1,15 +1,15 @@
 services:
-  gallery:
+  vitrine:
     build: .
     # Or, once published:
-    # image: ghcr.io/OWNER/gallery:latest
+    # image: ghcr.io/antoinenz/vitrine:latest
     restart: unless-stopped
     ports:
       - '3000:3000'
     volumes:
       # Database, uploaded originals and generated renditions all live here.
       # This directory *is* the backup: stop the container and copy it.
-      - gallery-data:/data
+      - vitrine-data:/data
     environment:
       # Must match the URL visitors actually use, including scheme and port.
       # SvelteKit rejects form submissions whose Origin doesn't match this.
@@ -35,4 +35,4 @@ services:
       BODY_SIZE_LIMIT: 512M
 
 volumes:
-  gallery-data:
+  vitrine-data:

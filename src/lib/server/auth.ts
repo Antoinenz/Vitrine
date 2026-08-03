@@ -14,7 +14,7 @@ import { SESSION_TTL_MS, IS_PRODUCTION } from './config';
  * general-purpose auth framework for a single-user application.
  */
 
-export const SESSION_COOKIE = 'gallery_session';
+export const SESSION_COOKIE = 'vitrine_session';
 
 /** Renew a session once it's past halfway, so active users are never logged out. */
 const RENEW_THRESHOLD_MS = SESSION_TTL_MS / 2;

@@ -136,7 +136,7 @@ async function drain(): Promise<void> {
 		void processOne(photoId)
 			.catch((err: unknown) => {
 				const message = err instanceof Error ? err.message : String(err);
-				console.error(`[gallery] Failed to process photo ${photoId}: ${message}`);
+				console.error(`[vitrine] Failed to process photo ${photoId}: ${message}`);
 				// Recorded rather than retried: a file that isn't a valid image will
 				// fail identically forever, and an endless retry loop would bury the
 				// queue. The admin UI surfaces this so it can be re-tried deliberately.
@@ -166,7 +166,7 @@ export function schedule(): void {
 export function startWorker(): void {
 	const requeued = requeueInterrupted();
 	if (requeued > 0) {
-		console.log(`[gallery] Requeued ${requeued} photo(s) interrupted by a restart.`);
+		console.log(`[vitrine] Requeued ${requeued} photo(s) interrupted by a restart.`);
 	}
 	schedule();
 }
