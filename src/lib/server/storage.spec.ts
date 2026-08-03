@@ -54,6 +54,34 @@ describe('storeOriginal', () => {
 		await expect(storeOriginal(Readable.from([]), 'empty.jpg')).rejects.toThrow(/empty/i);
 	});
 
+	/**
+	 * Content-Length is client-supplied, so a client can understate it and keep
+	 * sending. The limit has to hold as bytes actually arrive, or one request
+	 * could fill the disk.
+	 */
+	it('aborts mid-stream when the size limit is exceeded', async () => {
+		const chunks = Array.from({ length: 20 }, () => Buffer.alloc(1024, 1));
+
+		await expect(storeOriginal(Readable.from(chunks), 'big.jpg', 4096)).rejects.toThrow(/exceeds/i);
+	});
+
+	it('leaves no temp file behind when an upload is rejected', async () => {
+		const { readdir } = await import('node:fs/promises');
+		const tmpDir = originalPath('.').replace(/originals\/?\.?$/, 'tmp');
+
+		const before = await readdir(tmpDir).catch(() => []);
+		await storeOriginal(Readable.from([Buffer.alloc(8192, 1)]), 'big.jpg', 1024).catch(() => {});
+		const after = await readdir(tmpDir).catch(() => []);
+
+		expect(after.length).toBe(before.length);
+	});
+
+	it('accepts a file exactly at the limit', async () => {
+		const data = Buffer.alloc(1024, 7);
+		const stored = await storeOriginal(Readable.from([data]), 'exact.jpg', 1024);
+		expect(stored.bytes).toBe(1024);
+	});
+
 	it('drops a filename extension that is not plausible', async () => {
 		const stored = await storeOriginal(streamOf(crypto.randomUUID()), 'weird.this-is-not-an-ext');
 		expect(stored.storageKey.endsWith(stored.sha256)).toBe(true);

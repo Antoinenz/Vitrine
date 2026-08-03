@@ -64,20 +64,37 @@ function shardedKey(sha256: string, ext: string): string {
 	return join(sha256.slice(0, 2), sha256.slice(2, 4), sha256 + ext);
 }
 
+/** Thrown when an upload exceeds the configured size limit mid-stream. */
+export class UploadTooLargeError extends Error {
+	constructor(limit: number) {
+		super(`Upload exceeds the ${Math.floor(limit / 1024 / 1024)}MB limit`);
+		this.name = 'UploadTooLargeError';
+	}
+}
+
 /**
  * A pass-through that accumulates size, SHA-256 and CRC-32 as bytes flow by, so
  * a large upload is hashed in one pass without ever being held in memory.
+ *
+ * `maxBytes` is enforced here rather than from the Content-Length header alone,
+ * because that header is client-supplied: a client can understate it and keep
+ * sending. Failing on the chunk that crosses the limit caps what a single
+ * request can write to disk.
  */
-function createDigestStream() {
+function createDigestStream(maxBytes?: number) {
 	const sha = createHash('sha256');
 	let bytes = 0;
 	let crc = 0;
 
 	const stream = new Transform({
 		transform(chunk: Buffer, _enc, done) {
+			bytes += chunk.length;
+			if (maxBytes !== undefined && bytes > maxBytes) {
+				done(new UploadTooLargeError(maxBytes));
+				return;
+			}
 			sha.update(chunk);
 			crc = crc32(chunk, crc);
-			bytes += chunk.length;
 			done(null, chunk);
 		}
 	});
@@ -98,12 +115,13 @@ function createDigestStream() {
  */
 export async function storeOriginal(
 	source: AsyncIterable<Uint8Array> | NodeJS.ReadableStream,
-	originalName: string
+	originalName: string,
+	maxBytes?: number
 ): Promise<StoredFile> {
 	await mkdir(TMP_DIR, { recursive: true });
 
 	const tmpPath = join(TMP_DIR, `upload-${crypto.randomUUID()}`);
-	const { stream: digestStream, digest } = createDigestStream();
+	const { stream: digestStream, digest } = createDigestStream(maxBytes);
 
 	try {
 		await pipeline(source, digestStream, createWriteStream(tmpPath));
