@@ -1,4 +1,6 @@
 import { join, isAbsolute, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 
 /**
  * Central runtime configuration, read from the environment.
@@ -7,6 +9,33 @@ import { join, isAbsolute, resolve } from 'node:path';
  * inside SvelteKit request handlers *and* in standalone scripts (migrations,
  * seeding, the derivative worker) that run outside the Vite/Kit runtime.
  */
+
+/**
+ * Loads `.env` into `process.env`.
+ *
+ * Vite reads `.env` for its own `$env/*` modules but does **not** put those
+ * values into `process.env`. Since this module reads `process.env` — so it
+ * keeps working outside SvelteKit — a development server would otherwise
+ * ignore the `.env` file entirely, which is precisely the file the README tells
+ * contributors to create. The symptom is unpleasant: the app boots, reports
+ * that ADMIN_EMAIL is unset, and creates no account.
+ *
+ * Real environment variables take precedence, so a value passed by Docker or
+ * the shell is never overwritten by a stale `.env` left in the working
+ * directory. In production, `.env` is normally absent and this is a no-op.
+ */
+function loadDotEnv(): void {
+	try {
+		const parsed = parseEnv(readFileSync(join(process.cwd(), '.env'), 'utf8'));
+		for (const [key, value] of Object.entries(parsed)) {
+			if (process.env[key] === undefined) process.env[key] = value as string;
+		}
+	} catch {
+		// No `.env`, or unreadable — the environment alone is authoritative.
+	}
+}
+
+loadDotEnv();
 
 function str(name: string, fallback: string): string {
 	const v = process.env[name];

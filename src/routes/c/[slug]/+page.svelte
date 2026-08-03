@@ -1,10 +1,96 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { pushState, replaceState, preloadData, goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
+	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid } from '$lib/motion/stack-transition';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	/**
+	 * Opening a photo pushes its real URL while keeping the grid mounted behind
+	 * the overlay, so closing is instant and the browser's back button does the
+	 * natural thing. The same URL server-renders as a standalone page when
+	 * opened cold — see `[photoId]/+page.server.ts`.
+	 */
+	const openIndex = $derived(page.state.photo?.index ?? null);
+
+	async function openPhoto(event: MouseEvent, index: number) {
+		// Modified clicks and middle-clicks must keep opening a real tab.
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+		event.preventDefault();
+
+		const href = resolve('/c/[slug]/[photoId]', {
+			slug: data.collection.slug,
+			photoId: data.photos[index].id
+		});
+
+		// Warm the route's data so a later hard refresh or share is instant. If it
+		// fails, fall back to a full navigation rather than showing nothing.
+		const result = await preloadData(href);
+		if (result.type === 'loaded' && result.status === 200) {
+			pushState(href, { photo: { id: data.photos[index].id, index } });
+		} else {
+			await goto(href);
+		}
+	}
+
+	function stepPhoto(next: number) {
+		// Replaces rather than pushes: stepping through a collection shouldn't
+		// require forty back presses to escape.
+		replaceState(
+			resolve('/c/[slug]/[photoId]', {
+				slug: data.collection.slug,
+				photoId: data.photos[next].id
+			}),
+			{
+				photo: { id: data.photos[next].id, index: next }
+			}
+		);
+	}
+
+	function closePhoto() {
+		// `history.back()` rather than a goto, so the entry pushed on open is
+		// consumed instead of leaving a dangling forward step.
+		history.back();
+	}
+
+	/**
+	 * Brings the photo that was being viewed into view on the grid when the
+	 * overlay closes. Without this, closing after arrowing deep into a
+	 * collection dumps you back at the top with no idea where you were.
+	 */
+	let lastOpenIndex = $state<number | null>(null);
+	$effect(() => {
+		if (openIndex !== null) {
+			lastOpenIndex = openIndex;
+			return;
+		}
+
+		const index = lastOpenIndex;
+		if (index === null) return;
+		lastOpenIndex = null;
+
+		/**
+		 * Deferred by two frames rather than scrolling immediately.
+		 *
+		 * Closing goes through `history.back()`, and SvelteKit restores the scroll
+		 * position it recorded for that history entry — which is wherever the grid
+		 * was when the photo was opened. Scrolling synchronously here happens
+		 * *before* that restoration and is silently overwritten, so the page ends
+		 * up back at the top. Waiting until after layout has settled lets our
+		 * scroll win.
+		 */
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				gridEl
+					?.querySelectorAll('[data-photo]')
+					[index]?.scrollIntoView({ block: 'center', behavior: 'auto' });
+			});
+		});
+	});
 
 	const c = $derived(data.collection);
 	const title = $derived(data.artist.name ? `${c.title} · ${data.artist.name}` : c.title);
@@ -61,6 +147,12 @@
 	<p class="count">
 		{data.photos.length}
 		{data.photos.length === 1 ? 'photograph' : 'photographs'}
+		{#if c.zipEnabled && data.photos.length > 0}
+			<span class="sep">·</span>
+			<a class="zip" href={resolve('/api/collections/[slug]/download', { slug: c.slug })}>
+				Download all
+			</a>
+		{/if}
 	</p>
 </header>
 
@@ -75,12 +167,23 @@
 	<div class="grid" bind:this={gridEl}>
 		{#each data.photos as photo, i (photo.id)}
 			<figure data-photo={photo.id} data-index={i}>
-				<PhotoImage
-					{photo}
-					sizes="(max-width: 40rem) 100vw, (max-width: 70rem) 50vw, 33vw"
-					loading={i < 6 ? 'eager' : 'lazy'}
-					fetchpriority={i < 3 ? 'high' : 'auto'}
-				/>
+				<!-- A real link, so it can be opened in a new tab, copied, and
+				     followed without JavaScript. The click handler upgrades it to an
+				     in-place overlay when it can. -->
+				<a
+					href={resolve('/c/[slug]/[photoId]', {
+						slug: data.collection.slug,
+						photoId: photo.id
+					})}
+					onclick={(e) => openPhoto(e, i)}
+				>
+					<PhotoImage
+						{photo}
+						sizes="(max-width: 40rem) 100vw, (max-width: 70rem) 50vw, 33vw"
+						loading={i < 6 ? 'eager' : 'lazy'}
+						fetchpriority={i < 3 ? 'high' : 'auto'}
+					/>
+				</a>
 				{#if photo.caption}
 					<figcaption>{photo.caption}</figcaption>
 				{/if}
@@ -89,7 +192,23 @@
 	</div>
 {/if}
 
+{#if openIndex !== null}
+	<Viewer
+		photos={data.photos}
+		index={openIndex}
+		collectionTitle={c.title}
+		downloadsEnabled={c.downloadsEnabled}
+		onIndexChange={stepPhoto}
+		onClose={closePhoto}
+	/>
+{/if}
+
 <style>
+	figure a {
+		display: block;
+		cursor: zoom-in;
+	}
+
 	/* Same measure and padding as the grid, so every element on the page shares
 	   one left edge. */
 	.back {
@@ -136,6 +255,20 @@
 		margin: 0.75rem 0 0;
 		font-size: 0.8rem;
 		color: var(--color-ink-subtle);
+	}
+
+	.sep {
+		margin: 0 0.15rem;
+	}
+
+	.zip {
+		color: var(--color-accent);
+		text-decoration: none;
+		border-bottom: 1px solid color-mix(in oklab, var(--color-accent) 30%, transparent);
+	}
+
+	.zip:hover {
+		border-bottom-color: currentColor;
 	}
 
 	/*

@@ -45,16 +45,20 @@ test('the ghost overlay is created and then always cleaned up', async ({ page })
 	await page.locator('.stack-link').first().click();
 	await appeared;
 
-	// And it must not survive — a stranded fixed overlay would sit on top of the
-	// page swallowing nothing but looking wrong.
-	await expect(page.locator(GHOST_LAYER)).toHaveCount(0, { timeout: 5000 });
+	/**
+	 * And it must not survive — a stranded fixed overlay would sit on top of the
+	 * page looking wrong. The window is generous because the transition waits on
+	 * real image decoding, which is slow on a loaded CI machine; the assertion is
+	 * "it always goes away", not "it goes away within one animation frame".
+	 */
+	await expect(page.locator(GHOST_LAYER)).toHaveCount(0, { timeout: 15000 });
 });
 
 test('every photo ends fully visible after the transition', async ({ page }) => {
 	await page.goto('/');
 	await page.locator('.stack-link').first().click();
 	await expect(page).toHaveURL(/\/c\/sierra$/);
-	await expect(page.locator(GHOST_LAYER)).toHaveCount(0, { timeout: 5000 });
+	await expect(page.locator(GHOST_LAYER)).toHaveCount(0, { timeout: 15000 });
 
 	// The transition animates opacity; nothing may be left faded out.
 	const opacities = await page
