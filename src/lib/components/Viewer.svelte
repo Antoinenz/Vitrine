@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { gsap, prefersReducedMotion, MOTION } from '$lib/motion/gsap';
 	import type { PhotoView } from '$lib/server/photos';
 
 	/**
@@ -120,10 +121,96 @@
 
 	// --- navigation ---------------------------------------------------------
 
+	let stageEl = $state<HTMLElement>();
+	let imageEl = $state<HTMLElement>();
+
+	/** Which way the last step went, so the arrival slides in from the far side. */
+	let slideFrom = $state(0);
+
+	/**
+	 * Steps to another photograph.
+	 *
+	 * The index changes *immediately* and the animation is played on arrival,
+	 * rather than deferring the change until an exit tween finishes. Gating the
+	 * state change on the tween silently swallowed rapid presses: each keystroke
+	 * read a not-yet-updated index, so holding the arrow key advanced one or two
+	 * frames instead of racing through the collection.
+	 */
 	function go(next: number) {
 		if (next < 0 || next >= photos.length) return;
 		resetZoom();
+		slideFrom = next > index ? 1 : -1;
 		onIndexChange(next);
+	}
+
+	/** Slides the newly-shown photograph in from the direction of travel. */
+	$effect(() => {
+		void index;
+		const direction = slideFrom;
+		if (!direction || prefersReducedMotion() || !imageEl) return;
+
+		gsap.fromTo(
+			imageEl,
+			{ xPercent: 6 * direction, opacity: 0 },
+			{ xPercent: 0, opacity: 1, duration: 0.3, ease: MOTION.ease, overwrite: 'auto' }
+		);
+	});
+
+	/** Fades the backdrop up and lifts the photograph in on open. */
+	$effect(() => {
+		if (prefersReducedMotion() || !containerEl) return;
+		gsap.fromTo(containerEl, { opacity: 0 }, { opacity: 1, duration: 0.22, ease: 'power2.out' });
+		if (imageEl) {
+			gsap.fromTo(
+				imageEl,
+				{ scale: 0.94, opacity: 0 },
+				{ scale: 1, opacity: 1, duration: 0.36, ease: 'back.out(1.2)' }
+			);
+		}
+	});
+
+	/**
+	 * Plays the close animation, then hands back to the caller.
+	 *
+	 * The overlay is unmounted by the parent when the URL changes, so the
+	 * animation has to finish first — calling `onClose` immediately would remove
+	 * the element mid-tween.
+	 */
+	function animateClose() {
+		if (prefersReducedMotion() || !containerEl) {
+			onClose();
+			return;
+		}
+		gsap.to(imageEl ?? containerEl, { scale: 0.96, opacity: 0, duration: 0.16, ease: 'power2.in' });
+		gsap.to(containerEl, {
+			opacity: 0,
+			duration: 0.2,
+			ease: 'power2.in',
+			onComplete: onClose
+		});
+	}
+
+	// --- swipe -------------------------------------------------------------
+
+	/** Distance a finger must travel before it counts as a swipe rather than a tap. */
+	const SWIPE_THRESHOLD = 60;
+	let swipeStart: { x: number; y: number } | null = null;
+
+	function onSwipeStart(event: PointerEvent) {
+		// Only bare touch drags swipe; a zoomed photo is being panned instead.
+		if (event.pointerType === 'mouse' || zoomed) return;
+		swipeStart = { x: event.clientX, y: event.clientY };
+	}
+
+	function onSwipeEnd(event: PointerEvent) {
+		if (!swipeStart) return;
+		const dx = event.clientX - swipeStart.x;
+		const dy = event.clientY - swipeStart.y;
+		swipeStart = null;
+
+		// Ignore mostly-vertical drags so a scroll gesture doesn't change photo.
+		if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return;
+		go(dx < 0 ? index + 1 : index - 1);
 	}
 
 	/**
@@ -170,7 +257,7 @@
 				// Zoomed in, Escape steps back out before it closes — otherwise a
 				// close feels like it discarded work.
 				if (zoomed) resetZoom();
-				else onClose();
+				else animateClose();
 				break;
 			case '+':
 			case '=':
@@ -260,23 +347,46 @@
 					Download
 				</a>
 			{/if}
-			<button type="button" onclick={onClose} title="Close (Esc)" class="close">Close</button>
+			<button type="button" onclick={animateClose} title="Close (Esc)" class="close">Close</button>
 		</div>
 	</header>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!--
+		The dismiss-on-backdrop-click has a keyboard equivalent already: Escape is
+		bound on the window and closes the viewer. Adding a key handler to this div
+		would put a redundant, focusable element between the photograph and the
+		filmstrip for keyboard users.
+	-->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class="stage"
 		class:zoomed
 		class:dragging
+		bind:this={stageEl}
 		onwheel={onWheel}
-		onpointerdown={onPointerDown}
+		onpointerdown={(e) => {
+			onPointerDown(e);
+			onSwipeStart(e);
+		}}
 		onpointermove={onPointerMove}
-		onpointerup={onPointerUp}
-		onpointercancel={onPointerUp}
+		onpointerup={(e) => {
+			onPointerUp(e);
+			onSwipeEnd(e);
+		}}
+		onpointercancel={(e) => {
+			onPointerUp(e);
+			swipeStart = null;
+		}}
 		ondblclick={(e) => (zoomed ? resetZoom() : zoomAt(2.5, e.clientX, e.clientY))}
+		onclick={(e) => {
+			// Clicking the surround dismisses; clicking the photograph itself must
+			// not, or zooming would be impossible.
+			if (e.target === e.currentTarget && !zoomed) animateClose();
+		}}
 	>
 		<img
+			bind:this={imageEl}
 			src={fullSrc}
 			alt={photo.alt}
 			style:transform="translate3d({panX}px, {panY}px, 0) scale({zoom})"
@@ -337,10 +447,15 @@
 		z-index: 100;
 		display: grid;
 		grid-template-rows: auto 1fr auto;
-		/* Near-black rather than pure black: photographs read better against a
-		   surface that isn't absolute, and it matches the light theme's warmth. */
-		background: #17151400;
-		background-color: #171514;
+		/*
+		 * Translucent rather than solid, and warm rather than pure black — the page
+		 * stays faintly visible behind the photograph, so the viewer reads as a
+		 * layer over the gallery instead of a separate screen. The blur keeps the
+		 * grid from competing with the image through the backdrop.
+		 */
+		background-color: rgb(28 25 23 / 0.86);
+		backdrop-filter: blur(18px) saturate(0.9);
+		-webkit-backdrop-filter: blur(18px) saturate(0.9);
 		color: #f5f3f0;
 		outline: none;
 	}
@@ -403,6 +518,7 @@
 	.stage img {
 		max-width: 100%;
 		max-height: 100%;
+		border-radius: 4px;
 		width: auto;
 		height: auto;
 		object-fit: contain;
@@ -488,6 +604,12 @@
 		display: flex;
 		gap: 0.4rem;
 		overflow-x: auto;
+		/*
+		 * `safe center` centres a short strip but falls back to flex-start once it
+		 * overflows. Plain `center` would push the first thumbnails past the
+		 * scroll origin, making them unreachable.
+		 */
+		justify-content: safe center;
 		padding: 1rem 1.25rem;
 		scrollbar-width: thin;
 		scrollbar-color: #3a3634 transparent;

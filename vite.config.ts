@@ -3,6 +3,8 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export default defineConfig({
 	plugins: [
@@ -43,6 +45,13 @@ export default defineConfig({
 				test: {
 					name: 'server',
 					environment: 'node',
+					/**
+					 * The storage tests write real files under DATA_DIR. Pinning it to a
+					 * scratch directory means running the suite can never touch a
+					 * development or production data directory, and removes the hidden
+					 * requirement to remember to set it on the command line.
+					 */
+					env: { DATA_DIR: join(tmpdir(), 'vitrine-vitest') },
 					include: ['src/**/*.{test,spec}.{js,ts}'],
 					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
 				}

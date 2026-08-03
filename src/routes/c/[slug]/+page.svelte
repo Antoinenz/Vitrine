@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { pushState, replaceState, preloadData, goto } from '$app/navigation';
+	import { pushState, replaceState, preloadData, goto, beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import Viewer from '$lib/components/Viewer.svelte';
-	import { playIntoGrid, revealGrid } from '$lib/motion/stack-transition';
+	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -94,6 +94,19 @@
 
 	const c = $derived(data.collection);
 	const title = $derived(data.artist.name ? `${c.title} · ${data.artist.name}` : c.title);
+
+	/**
+	 * Captures the grid on the way out, so the photographs collapse back into
+	 * their stack instead of simply disappearing.
+	 *
+	 * `beforeNavigate` rather than a click handler on the back link, so the
+	 * browser's own Back button and a swipe-back gesture animate too — those are
+	 * how most people actually leave a page.
+	 */
+	beforeNavigate((nav) => {
+		if (nav.to?.route.id !== '/') return;
+		if (gridEl) captureGrid(gridEl, c.id);
+	});
 
 	let gridEl = $state<HTMLElement>();
 

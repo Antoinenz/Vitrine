@@ -15,12 +15,26 @@
 		sizes = '100vw',
 		loading = 'lazy',
 		fetchpriority = 'auto',
+		aspect,
 		class: className = ''
 	}: {
 		photo: PhotoView;
 		sizes?: string;
 		loading?: 'lazy' | 'eager';
 		fetchpriority?: 'high' | 'low' | 'auto';
+		/**
+		 * Forces a uniform frame shape, e.g. `'4 / 3'`, cropping via object-fit.
+		 *
+		 * Used by the collection stacks: a pile of prints has to be one card
+		 * shape. Letting each photograph keep its own ratio makes the cards
+		 * different heights, so the pile reads as broken rather than layered, and
+		 * a tall photograph behind a short one overflows the container and
+		 * collides with the caption beneath.
+		 *
+		 * The grid deliberately does *not* set this — there, every photograph
+		 * should be seen whole.
+		 */
+		aspect?: string;
 		class?: string;
 	} = $props();
 
@@ -47,7 +61,7 @@
 
 <div
 	class="frame {className}"
-	style:aspect-ratio="{photo.width} / {photo.height}"
+	style:aspect-ratio={aspect ?? `${photo.width} / ${photo.height}`}
 	style:background-color={photo.dominantColor}
 >
 	<picture>

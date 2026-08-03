@@ -43,8 +43,8 @@
 	 * Stack geometry, read by both the CSS that lays a stack out and the GSAP
 	 * code that animates it, so the two can't drift apart.
 	 */
-	--stack-offset: 8px;
-	--stack-rotation: 1.6deg;
+	--stack-offset: 11px;
+	--stack-rotation: 3.2deg;
 	--stack-perspective: 900px;
 }
 

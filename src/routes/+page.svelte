@@ -3,7 +3,7 @@
 	import { preloadData } from '$app/navigation';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import { stackHover } from '$lib/motion/stack-hover';
-	import { captureStack } from '$lib/motion/stack-transition';
+	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -31,6 +31,15 @@
 
 		const stack = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('.stack');
 		if (stack) captureStack(stack, collectionId);
+	}
+
+	/**
+	 * Plays the returning grid→stack transition when arriving back from a
+	 * collection. Does nothing on a first visit, when nothing was captured.
+	 */
+	function returnTransition(node: HTMLElement, collectionId: string) {
+		if (!hasPending(collectionId)) return;
+		void playIntoStack(node, collectionId);
 	}
 </script>
 
@@ -104,15 +113,28 @@
 						The grid marks its counterparts with `data-photo`, which the
 						transition pairs up by index.
 					-->
-					<div class="stack" style:--depth={collection.stack.length} use:stackHover>
+					<div
+						class="stack"
+						style:--depth={collection.stack.length}
+						use:stackHover
+						{@attach (node) => returnTransition(node, collection.id)}
+					>
 						{#each collection.stack as photo, i (photo.id)}
-							<div class="layer" style:--i={i} style:z-index={collection.stack.length - i}>
-								<PhotoImage
-									{photo}
-									sizes="(max-width: 40rem) 80vw, 320px"
-									loading={i === 0 ? 'eager' : 'lazy'}
-									fetchpriority={i === 0 ? 'high' : 'auto'}
-								/>
+							<div
+								class="layer"
+								data-photo={photo.id}
+								style:--i={i}
+								style:z-index={collection.stack.length - i}
+							>
+								<div class="card">
+									<PhotoImage
+										{photo}
+										sizes="(max-width: 40rem) 80vw, 320px"
+										loading={i === 0 ? 'eager' : 'lazy'}
+										fetchpriority={i === 0 ? 'high' : 'auto'}
+										aspect="4 / 3"
+									/>
+								</div>
 							</div>
 						{/each}
 					</div>
@@ -232,24 +254,38 @@
 		padding: calc(var(--stack-offset) * var(--depth));
 	}
 
+	/*
+	 * CSS owns the fan; GSAP owns the magnet on `.card` inside. Splitting them
+	 * across two elements keeps both from writing `transform` on the same node,
+	 * which otherwise flickers as the CSS transition and the tween fight.
+	 */
 	.layer {
-		transition:
-			transform var(--duration-hover) var(--ease-out-soft),
-			box-shadow var(--duration-hover) var(--ease-out-soft);
-		/* Fanned down and to the right, each layer a little further along and a
-		   little more rotated than the one above it. */
+		transition: transform var(--duration-hover) var(--ease-out-soft);
+		/* Fanned down and to the right, each card further along and more rotated
+		   than the one above it. */
 		transform: translate3d(
 				calc(var(--stack-offset) * var(--i)),
-				calc(var(--stack-offset) * var(--i)),
+				calc(var(--stack-offset) * var(--i) * 0.7),
 				0
 			)
 			rotate(calc(var(--stack-rotation) * var(--i)));
-		box-shadow:
-			0 1px 2px rgb(28 25 23 / 0.06),
-			0 8px 24px -12px rgb(28 25 23 / 0.25);
-		border-radius: 2px;
+	}
+
+	.card {
+		border-radius: 12px;
 		overflow: hidden;
 		background: var(--color-surface-raised);
+		box-shadow:
+			0 1px 2px rgb(28 25 23 / 0.07),
+			0 10px 30px -14px rgb(28 25 23 / 0.32);
+		transition: box-shadow var(--duration-hover) var(--ease-out-soft);
+	}
+
+	.stack-link:hover .card,
+	.stack-link:focus-visible .card {
+		box-shadow:
+			0 2px 4px rgb(28 25 23 / 0.08),
+			0 18px 44px -18px rgb(28 25 23 / 0.4);
 	}
 
 	/* Only the top layer is in flow; the rest stack up behind it. */
@@ -267,11 +303,11 @@
 	.stack-link:hover .layer,
 	.stack-link:focus-visible .layer {
 		transform: translate3d(
-				calc(var(--stack-offset) * var(--i) * 1.9),
-				calc(var(--stack-offset) * var(--i) * 1.35),
+				calc(var(--stack-offset) * var(--i) * 2.1),
+				calc(var(--stack-offset) * var(--i) * 1.1),
 				0
 			)
-			rotate(calc(var(--stack-rotation) * var(--i) * 1.7));
+			rotate(calc(var(--stack-rotation) * var(--i) * 1.55));
 	}
 
 	.caption {

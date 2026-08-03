@@ -40,10 +40,25 @@ test('the ghost overlay is created and then always cleaned up', async ({ page })
 	await page.goto('/');
 	await expect(page.locator('.stack').first()).toBeVisible();
 
-	// Catch the overlay mid-flight: it only exists during the transition.
-	const appeared = page.waitForSelector(GHOST_LAYER, { state: 'attached', timeout: 3000 });
+	/**
+	 * The overlay exists only for the length of the transition, so polling for it
+	 * is a race that a loaded machine loses. A MutationObserver installed before
+	 * the click records that it appeared at all, which is the actual claim and is
+	 * independent of how fast the run happens to be.
+	 */
+	type GhostWindow = Window & { __sawGhost?: boolean };
+
+	await page.evaluate(() => {
+		(window as GhostWindow).__sawGhost = false;
+		new MutationObserver(() => {
+			if (document.getElementById('vitrine-ghost-layer')) {
+				(window as GhostWindow).__sawGhost = true;
+			}
+		}).observe(document.body, { childList: true });
+	});
+
 	await page.locator('.stack-link').first().click();
-	await appeared;
+	await expect.poll(() => page.evaluate(() => (window as GhostWindow).__sawGhost)).toBe(true);
 
 	/**
 	 * And it must not survive — a stranded fixed overlay would sit on top of the
