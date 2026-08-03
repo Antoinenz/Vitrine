@@ -6,16 +6,18 @@ import {
 	deleteSessionCookie
 } from '$lib/server/auth';
 import { bootstrap } from '$lib/server/bootstrap';
+import { startWorker } from '$lib/server/images/worker';
+import { cleanTempFiles } from '$lib/server/storage';
 
 /**
- * Runs once before the first request is served: creates storage directories and
- * seeds the owner account on a fresh install.
- *
- * The image worker is started from here too once it exists — it also needs to
- * requeue any processing a previous shutdown interrupted.
+ * Runs once before the first request is served: creates storage directories,
+ * seeds the owner account on a fresh install, clears any half-written uploads
+ * left by a previous shutdown, and restarts interrupted image processing.
  */
 export const init: ServerInit = async () => {
 	await bootstrap();
+	await cleanTempFiles();
+	startWorker();
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
