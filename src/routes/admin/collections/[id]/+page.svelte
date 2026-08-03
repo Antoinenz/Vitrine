@@ -41,9 +41,9 @@
 
 <header class="head">
 	<h1>{c.title}</h1>
-	<!-- The public address, shown for reference. It becomes a live "Preview"
-	     link once the public collection page exists. -->
-	<span class="preview">/c/{c.slug}</span>
+	<a class="preview" href={resolve('/c/[slug]', { slug: c.slug })} target="_blank" rel="noopener">
+		/c/{c.slug} ↗
+	</a>
 </header>
 
 {#if form?.message}
