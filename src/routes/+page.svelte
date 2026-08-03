@@ -1,11 +1,37 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { preloadData } from '$app/navigation';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
+	import { stackHover } from '$lib/motion/stack-hover';
+	import { captureStack } from '$lib/motion/stack-transition';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	const name = $derived(data.profile?.displayName || 'Vitrine');
+
+	/**
+	 * Warms the destination on hover, so the click has both the page data and the
+	 * grid's images already in cache. The stack and the grid request identical
+	 * derivative URLs, which is what makes the second half of this work.
+	 */
+	function warm(collection: (typeof data.collections)[number], href: string) {
+		void preloadData(href);
+		for (const photo of collection.stack) new Image().src = photo.src;
+	}
+
+	/**
+	 * Captures the stack just before navigation. The click is not intercepted —
+	 * SvelteKit's router still handles the link normally, so the URL changes and
+	 * the page is genuinely shareable.
+	 */
+	function onStackClick(event: MouseEvent, collectionId: string) {
+		// Let modified clicks (new tab, download) behave normally.
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+
+		const stack = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('.stack');
+		if (stack) captureStack(stack, collectionId);
+	}
 </script>
 
 <svelte:head>
@@ -66,16 +92,19 @@
 					class="stack-link"
 					href={resolve('/c/[slug]', { slug: collection.slug })}
 					data-collection={collection.id}
+					onpointerenter={(e) => warm(collection, e.currentTarget.href)}
+					onfocus={(e) => warm(collection, e.currentTarget.href)}
+					onclick={(e) => onStackClick(e, collection.id)}
 				>
 					<!--
 						The stack. Each layer is offset and rotated from CSS custom
 						properties keyed off its index, so the arrangement is declarative
 						and the animation layer only has to change the variables.
 
-						`data-flip-id` marks the photos the page transition will carry into
-						the collection grid.
+						The grid marks its counterparts with `data-photo`, which the
+						transition pairs up by index.
 					-->
-					<div class="stack" style:--depth={collection.stack.length}>
+					<div class="stack" style:--depth={collection.stack.length} use:stackHover>
 						{#each collection.stack as photo, i (photo.id)}
 							<div class="layer" style:--i={i} style:z-index={collection.stack.length - i}>
 								<PhotoImage
@@ -108,13 +137,24 @@
 {/if}
 
 <style>
+	/*
+	 * Shares the collections grid's measure and padding so the bio and the first
+	 * stack start on the same left edge. Constraining the intro to its own
+	 * narrower box would centre it independently and leave the text floating
+	 * inward of the photographs.
+	 */
 	.intro {
 		display: flex;
 		gap: 1.25rem;
 		align-items: flex-start;
-		max-width: 42rem;
+		max-width: 78rem;
 		margin: 0 auto 5rem;
 		padding: 5rem 1.5rem 0;
+	}
+
+	/* The text still keeps a readable line length within that wider container. */
+	.intro-text {
+		max-width: 38rem;
 	}
 
 	.avatar {
@@ -268,7 +308,7 @@
 	}
 
 	.empty {
-		max-width: 42rem;
+		max-width: 78rem;
 		margin: 0 auto;
 		padding: 0 1.5rem 8rem;
 		font-size: 0.95rem;

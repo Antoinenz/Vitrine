@@ -31,3 +31,8 @@ playwright-report
 *.db
 *.db-wal
 *.db-shm
+
+# Playwright
+/test-results
+/playwright-report
+/.svelte-kit
