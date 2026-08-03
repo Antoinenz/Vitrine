@@ -1,0 +1,38 @@
+services:
+  gallery:
+    build: .
+    # Or, once published:
+    # image: ghcr.io/OWNER/gallery:latest
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    volumes:
+      # Database, uploaded originals and generated renditions all live here.
+      # This directory *is* the backup: stop the container and copy it.
+      - gallery-data:/data
+    environment:
+      # Must match the URL visitors actually use, including scheme and port.
+      # SvelteKit rejects form submissions whose Origin doesn't match this.
+      ORIGIN: http://localhost:3000
+
+      # Owner account, created only on first boot while no user exists. The app
+      # forces a password change at first login. Change these before starting.
+      ADMIN_EMAIL: you@example.com
+      ADMIN_PASSWORD: change-me-before-first-boot
+
+      # Rendition formats. Drop to `webp` alone on low-powered hardware — AVIF
+      # encoding of a 4K image costs seconds of CPU per rendition.
+      IMAGE_FORMATS: avif,webp
+
+      # Photos processed in parallel. Each holds a decoded bitmap in memory.
+      WORKER_CONCURRENCY: 2
+
+      # Largest accepted upload, per file.
+      MAX_UPLOAD_MB: 100
+
+      # Raised in the image already; shown here because a reverse proxy in front
+      # needs its own limit raised to match (nginx: client_max_body_size 512m).
+      BODY_SIZE_LIMIT: 512M
+
+volumes:
+  gallery-data:

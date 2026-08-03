@@ -1,0 +1,122 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens.
+ *
+ * Tailwind v4's `@theme` compiles each entry to a CSS custom property *and* a
+ * matching utility class, so `--color-surface` gives both `var(--color-surface)`
+ * for hand-written CSS and `bg-surface` for markup. One source of truth.
+ *
+ * The palette is deliberately warm and low-contrast in its chrome. Photographs
+ * carry the colour; a pure-white (#fff) background competes with highlights and
+ * makes prints look flat, so the surface sits slightly warm and slightly dark.
+ */
+@theme {
+	/* Surfaces, warm off-white through to near-black ink. */
+	--color-surface: #faf9f7;
+	--color-surface-raised: #ffffff;
+	--color-surface-sunken: #f2f0ed;
+	/* Neutral bed behind an image while it decodes. */
+	--color-surface-image: #e8e5e1;
+
+	--color-ink: #1c1917;
+	--color-ink-muted: #57534e;
+	--color-ink-subtle: #8c8681;
+	--color-hairline: #e2ddd7;
+
+	/**
+	 * Overridden per-install from `profiles.accent_color`, injected as an inline
+	 * style on <html>. The value here is the fallback before that loads.
+	 */
+	--color-accent: #1c1917;
+
+	/* Type. A single system stack: no webfont request in front of the images. */
+	--font-sans:
+		ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+	/* Motion. Shared with GSAP so CSS and JS animation feel like one system. */
+	--ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+	--duration-hover: 400ms;
+	--duration-transition: 620ms;
+
+	/**
+	 * Stack geometry, read by both the CSS that lays a stack out and the GSAP
+	 * code that animates it, so the two can't drift apart.
+	 */
+	--stack-offset: 8px;
+	--stack-rotation: 1.6deg;
+	--stack-perspective: 900px;
+}
+
+/* --------------------------------------------------------------------- */
+/* Base                                                                    */
+/* --------------------------------------------------------------------- */
+
+html {
+	background-color: var(--color-surface);
+	color: var(--color-ink);
+	font-family: var(--font-sans);
+	/* Anchor scrolling shouldn't jump under a sticky header. */
+	scroll-padding-block-start: 5rem;
+}
+
+body {
+	margin: 0;
+	min-height: 100svh;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+/**
+ * Images are block-level and never overflow their column. Set here rather than
+ * per-component because a stray inline-image baseline gap inside a stack throws
+ * off the measured rects the Flip transition depends on.
+ */
+img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+}
+
+/* A single visible focus treatment, so keyboard users can always see where they are. */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+/**
+ * Respect the OS-level reduced-motion setting globally.
+ *
+ * The GSAP code checks this too (via `gsap.matchMedia`), because JS-driven
+ * transforms aren't affected by CSS duration overrides. This block covers
+ * everything else — CSS transitions, smooth scrolling, and any animation added
+ * later without remembering to guard it.
+ */
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* Visually hidden, but still announced by screen readers. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border-width: 0;
+}
