@@ -77,6 +77,9 @@ async function computeDominantColor(image: Sharp): Promise<string> {
  */
 sharp.concurrency(1);
 
+/** Width of the JPEG generated for link previews. */
+export const SOCIAL_WIDTH = 1280;
+
 /**
  * Generates every rendition for one image, plus its placeholder data.
  *
@@ -135,6 +138,24 @@ export async function processImage(input: Buffer): Promise<ProcessedImage> {
 			});
 			renditions.push({ width: info.width, height: info.height, format, data });
 		}
+	}
+
+	/**
+	 * Always emit one JPEG for social previews, whatever `IMAGE_FORMATS` says.
+	 *
+	 * OpenGraph scrapers are far behind browsers on format support — several
+	 * still can't decode AVIF or WebP — and an install configured for
+	 * `avif,webp` alone would otherwise advertise an `og:image` URL that doesn't
+	 * exist. One extra encode per photograph is a small price for link previews
+	 * that work.
+	 */
+	if (!IMAGE_FORMATS.includes('jpeg')) {
+		const socialWidth = Math.min(SOCIAL_WIDTH, width);
+		const { data, info } = await ENCODERS.jpeg(
+			base.clone().resize(socialWidth, undefined, { withoutEnlargement: true, fit: 'inside' })
+		).toBuffer({ resolveWithObject: true });
+
+		renditions.push({ width: info.width, height: info.height, format: 'jpeg', data });
 	}
 
 	return { width, height, thumbhash, dominantColor, renditions };

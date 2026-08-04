@@ -3,6 +3,7 @@ import { db } from './db';
 import { derivatives, photos, type Photo, type Collection } from './db/schema';
 import { projectExif } from './images/exif';
 import type { PhotoExif } from './db/schema';
+import { SOCIAL_WIDTH } from '../social';
 
 /**
  * Turns database rows into the shape the public pages render.
@@ -36,6 +37,12 @@ export interface PhotoView {
 	src: string;
 	/** Widest rendition available, used by the viewer when zoomed. */
 	maxWidth: number;
+	/**
+	 * URL for link-preview scrapers. Derived from what was actually generated
+	 * rather than assumed, so it resolves for photographs narrower than the
+	 * social width and for libraries processed before JPEG was guaranteed.
+	 */
+	socialSrc: string;
 	exif: PhotoExif;
 }
 
@@ -114,6 +121,14 @@ export function toPhotoViews(rows: Photo[], collection: Collection): PhotoView[]
 				? 'webp'
 				: (mine[0]?.format ?? 'webp');
 
+		// Prefer JPEG at (or just under) the social width; fall back to whatever
+		// exists so the tag never points at a missing file.
+		const jpegs = mine.filter((d) => d.format === 'jpeg').map((d) => d.width);
+		const socialWidth = jpegs.length
+			? (jpegs.filter((w) => w <= SOCIAL_WIDTH).sort((a, b) => b - a)[0] ?? Math.min(...jpegs))
+			: maxWidth;
+		const socialFormat = jpegs.length ? 'jpeg' : fallbackFormat;
+
 		return {
 			id: photo.id,
 			width: photo.width,
@@ -127,6 +142,7 @@ export function toPhotoViews(rows: Photo[], collection: Collection): PhotoView[]
 			sources: buildSources(photo.id, mine),
 			src: `/i/${photo.id}/${maxWidth}.${fallbackFormat}`,
 			maxWidth,
+			socialSrc: `/i/${photo.id}/${socialWidth}.${socialFormat}`,
 			exif: projectExif(photo.exif, collection.metadataFields)
 		};
 	});

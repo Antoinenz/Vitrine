@@ -11,32 +11,26 @@ opened.
 Open source, MIT licensed, and designed to run on one small server with one
 directory to back up.
 
-> ### ⚠️ Status: early development — not yet usable
+> ### Status: usable, still pre-1.0
 >
-> The backend foundation is built and tested, but **there is no interface yet**:
-> no upload screen, no admin area, no public gallery pages. Running it today
-> gets you a server that boots, migrates its database and serves an empty page.
+> The gallery works end to end — sign in, upload, publish, browse, download.
+> It has not yet been run in anger by anyone but its author, so treat it as
+> early software: back up `DATA_DIR`, and expect rough edges.
 >
-> Don't deploy this expecting a working gallery. The setup instructions below
-> are accurate and tested, they just don't lead anywhere useful yet.
->
-> | Area                                            | State          |
-> | ----------------------------------------------- | -------------- |
-> | Database schema, migrations                     | ✅ Done        |
-> | Login sessions, password hashing                | ✅ Done        |
-> | Image pipeline — renditions, EXIF, placeholders | ✅ Done        |
-> | Background processing queue                     | ✅ Done        |
-> | Docker / self-hosting setup                     | ✅ Done        |
-> | Upload endpoint + admin UI                      | 🚧 In progress |
-> | Public gallery pages                            | ⬜ Not started |
-> | 3D stack hover + page transition                | ⬜ Not started |
-> | Photo viewer — keys, filmstrip, zoom            | ⬜ Not started |
-> | Downloads + ZIP                                 | ⬜ Not started |
+> | Area                                        | State              |
+> | ------------------------------------------- | ------------------ |
+> | Upload, collections, visibility, profile    | ✅                 |
+> | Public pages, stacks, collection grid       | ✅                 |
+> | Stack → grid transition, 3D hover           | ✅                 |
+> | Photo viewer — keys, filmstrip, zoom, swipe | ✅                 |
+> | Downloads, collection ZIP, metadata control | ✅                 |
+> | Drag-to-reorder, sitemap, link previews     | ✅                 |
+> | Multi-artist, S3 storage, video             | ⬜ Not planned yet |
 
-## Planned features
+## Features
 
-- **Collections as stacks.** Each collection is a stack of photographs that
-  tilts in 3D as you move the cursor across it.
+- **Collections as stacks.** Each collection is a scattered pile of prints that
+  tilts in 3D and drifts toward the cursor as you move across it.
 - **Animated navigation.** Opening a collection moves its photos into the grid,
   across a real URL change — the collection page is genuinely shareable, not a
   modal pretending to be one.
@@ -78,7 +72,7 @@ Every option, with its default:
 | -------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `ORIGIN`             | —            | The URL visitors actually use, including scheme and port. Required in production; form submissions from a different origin are rejected. |
 | `DATA_DIR`           | `./data`     | Database, originals and renditions. The whole backup surface.                                                                            |
-| `DATABASE_URL`       | `gallery.db` | Relative paths resolve inside `DATA_DIR`.                                                                                                |
+| `DATABASE_URL`       | `vitrine.db` | Relative paths resolve inside `DATA_DIR`.                                                                                                |
 | `BODY_SIZE_LIMIT`    | `512M`       | See the warning below.                                                                                                                   |
 | `MAX_UPLOAD_MB`      | `100`        | Largest single file accepted.                                                                                                            |
 | `IMAGE_FORMATS`      | `avif,webp`  | Rendition formats, most-preferred first.                                                                                                 |
@@ -99,6 +93,14 @@ client_max_body_size 512m;
 ```
 
 Caddy has no request body limit by default and needs nothing.
+
+**On reaching your gallery at more than one address:** `ORIGIN` is a single
+value, and SvelteKit rejects form submissions whose `Origin` header doesn't
+match it — so browsing works from anywhere, but signing in only works at the
+configured address. SvelteKit's `csrf.trustedOrigins` allow-list would solve it,
+but that is **build-time** configuration, so it can't be set through an
+environment variable on a prebuilt image. Pick the address you'll administer
+from and set `ORIGIN` to it.
 
 **On low-powered hardware** (a Raspberry Pi, a 1 vCPU VPS), set
 `IMAGE_FORMATS=webp`. AVIF compresses better but costs seconds of CPU per
@@ -133,11 +135,13 @@ npm run dev
 | `npm run format`      | Apply formatting                                |
 | `npm run db:generate` | Generate migration SQL after editing the schema |
 
-Tests want a scratch data directory so they don't touch your dev database:
-
 ```sh
-DATA_DIR=/tmp/vitrine-test npx vitest run
+npm run test:unit -- --run   # unit tests
+npm run test:e2e             # browser tests (builds and serves automatically)
 ```
+
+The unit suite pins `DATA_DIR` to a scratch directory itself, so running it can
+never touch your development data.
 
 Migrations are **generated** by drizzle-kit but **applied by the app** at
 startup, so `db:migrate` isn't part of the normal workflow — edit

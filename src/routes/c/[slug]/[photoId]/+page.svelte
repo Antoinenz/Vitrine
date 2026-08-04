@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import Viewer from '$lib/components/Viewer.svelte';
 	import type { PageData } from './$types';
 
@@ -40,7 +41,9 @@
 	{#if data.collection.visibility !== 'public'}
 		<meta name="robots" content="noindex" />
 	{/if}
-	<meta property="og:image" content="/i/{data.photos[index].id}/1280.jpeg" />
+	<meta property="og:image" content="{page.url.origin}{data.photos[index].socialSrc}" />
+	<meta property="og:url" content={page.url.href} />
+	<meta name="twitter:card" content="summary_large_image" />
 </svelte:head>
 
 <Viewer

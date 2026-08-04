@@ -13,6 +13,7 @@ import { requireOwner, requireOwnedCollection } from '$lib/server/guards';
 import { slugify, isReservedSlug } from '$lib/server/slug';
 import { hashPassword } from '$lib/server/auth';
 import { retryPhoto } from '$lib/server/images/worker';
+import { keyBetween } from '$lib/server/sort-key';
 import { deleteDerivatives, deleteOriginal } from '$lib/server/storage';
 
 const VISIBILITIES = new Set<Visibility>(['public', 'unlisted', 'private']);
@@ -161,6 +162,59 @@ export const actions: Actions = {
 
 		db.update(collections)
 			.set({ coverPhotoId: photoId, updatedAt: new Date() })
+			.where(eq(collections.id, collection.id))
+			.run();
+
+		return { saved: true };
+	},
+
+	/**
+	 * Moves a photograph between two neighbours.
+	 *
+	 * The client sends who it was dropped *between*, not a target index, so the
+	 * server mints a single fractional key with `keyBetween` and writes one row.
+	 * Sending an index would mean renumbering every sibling on each drag.
+	 */
+	reorder: async ({ locals, params, request }) => {
+		const user = requireOwner(locals);
+		const collection = requireOwnedCollection(user.id, params.id);
+		const data = await request.formData();
+
+		const photoId = String(data.get('photoId') ?? '');
+		const beforeId = String(data.get('beforeId') ?? '');
+		const afterId = String(data.get('afterId') ?? '');
+
+		const inCollection = (id: string) =>
+			id
+				? (db
+						.select({ sortKey: photos.sortKey })
+						.from(photos)
+						.where(and(eq(photos.id, id), eq(photos.collectionId, collection.id)))
+						.get()?.sortKey ?? null)
+				: null;
+
+		// Every id is checked against this collection, so a crafted request can't
+		// reposition a photograph using a neighbour from somewhere else.
+		if (!inCollection(photoId)) {
+			return fail(404, { message: 'That photo is not in this collection.' });
+		}
+
+		const before = inCollection(beforeId);
+		const after = inCollection(afterId);
+
+		try {
+			db.update(photos)
+				.set({ sortKey: keyBetween(before, after) })
+				.where(eq(photos.id, photoId))
+				.run();
+		} catch {
+			// Neighbours arrived out of order — a stale page, or two drags racing.
+			// The next load resolves it, so this isn't worth surfacing.
+			return fail(409, { message: 'That order is out of date. Reload and try again.' });
+		}
+
+		db.update(collections)
+			.set({ updatedAt: new Date() })
 			.where(eq(collections.id, collection.id))
 			.run();
 

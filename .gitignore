@@ -36,3 +36,6 @@ playwright-report
 /test-results
 /playwright-report
 /.svelte-kit
+
+# Test instance data (systemd service on :5174)
+/data-prod
