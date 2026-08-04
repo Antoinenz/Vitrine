@@ -42,9 +42,16 @@ const MAX_AGE_MS = 2500;
 /** Released even if images never decode, so the page is never stuck. */
 const DECODE_TIMEOUT_MS = 400;
 
-/** Quick enough to feel responsive, with a little overshoot on arrival. */
+/**
+ * Quick enough to feel responsive, and eased without overshoot.
+ *
+ * `back.out` pushed the photographs past their destination and settled back,
+ * which read as a wobble against the grid they were landing in — the target is
+ * a fixed rectangle, so anything that overshoots it looks like a mistake rather
+ * than momentum.
+ */
 const DURATION = 0.5;
-const ARRIVE_EASE = 'back.out(1.35)';
+const ARRIVE_EASE = 'power3.out';
 
 interface Ghost {
 	el: HTMLElement;

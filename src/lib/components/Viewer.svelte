@@ -191,7 +191,7 @@
 			gsap.fromTo(
 				imageEl,
 				{ scale: 0.94, opacity: 0 },
-				{ scale: 1, opacity: 1, duration: 0.36, ease: 'back.out(1.2)' }
+				{ scale: 1, opacity: 1, duration: 0.34, ease: 'power3.out' }
 			);
 		}
 	});
@@ -592,11 +592,22 @@
 	}
 
 	.stage img {
-		max-width: 100%;
-		max-height: 100%;
-		border-radius: 4px;
-		width: auto;
-		height: auto;
+		/*
+		 * The element fills the stage and the photograph is letterboxed inside it
+		 * by `object-fit: contain`, rather than the element being sized from the
+		 * photograph's own dimensions.
+		 *
+		 * Sizing it the other way — `width/height: auto` with `max-*: 100%` — let
+		 * the width constraint win and then derived the height from the aspect
+		 * ratio, so a tall photograph computed a height taller than the stage and
+		 * was clipped by its overflow. Filling a known box takes percentage
+		 * resolution out of the picture: whatever size the stage is, the
+		 * photograph fits within it.
+		 */
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
 		object-fit: contain;
 		user-select: none;
 		/* No transition while dragging — panning must track the pointer exactly. */
