@@ -14,58 +14,132 @@
 export const TEMPLATES: Record<'terms' | 'privacy', string> = {
 	terms: `# Terms of use
 
-These terms cover your use of {{SITE}}.
+These terms cover your use of {{SITE}} (the "site"). By browsing it you agree to
+them. If you don't, please don't use the site.
 
-# The photographs
+# Copyright
 
-Every photograph on this site is the property of {{SITE}} and is protected by
-copyright. You may view them here and share links to them.
+Every photograph published here is the work of {{SITE}} and is protected by
+copyright. Copyright is not transferred by viewing, downloading, or sharing.
 
-You may not reproduce, redistribute, sell, or use them commercially, or train
-machine-learning models on them, without written permission.
+You may view the photographs, link to any page, and share those links freely.
 
-Where a collection offers downloads, those files are provided for the purpose
-agreed with you and remain subject to these terms.
+# What you may not do
 
-# Availability
+Without written permission, you may not:
 
-This site is offered as-is. It may be unavailable at times, and collections may
-be changed or removed without notice.
+reproduce, republish, or redistribute any photograph, in whole or in part;
+sell, license, or otherwise commercialise it;
+use it in any product, publication, advertisement, or promotional material;
+alter, crop, recolour, or create derivative works from it;
+remove or obscure any credit, watermark, or metadata;
+use it to train, fine-tune, or evaluate machine-learning or generative systems,
+or include it in any dataset assembled for that purpose.
 
-# Contact
+Automated scraping, bulk downloading, and framing the site's images on another
+site are not permitted.
 
-Questions about these terms can be sent to [add your contact address].
+# Downloads
+
+Some collections offer downloads. Where they do, files are provided for the
+purpose agreed with you — a print, a personal copy, a delivery to a client — and
+remain subject to these terms. A download grants no additional rights.
+
+# Password-protected collections
+
+Some collections are shared by link and password. Please don't pass either on
+without the owner's agreement. Access can be withdrawn at any time.
+
+# Availability and changes
+
+The site is provided as-is and as-available. It may be offline at times, and
+collections may be added, changed, or removed without notice. Nothing here is a
+guarantee of continued availability.
+
+# Liability
+
+To the extent the law allows, {{SITE}} is not liable for any loss arising from
+use of this site. Nothing in these terms limits liability that cannot be limited
+by law.
+
+# Licensing and permissions
+
+Requests to license or reproduce a photograph are welcome. Write to
+[add your contact address].
+
+# Changes to these terms
+
+These terms may be updated. The date below shows when they last changed.
 
 _Last updated: [date]._`,
 
 	privacy: `# Privacy
 
-This page explains what {{SITE}} collects when you visit.
+This page explains what happens to information about you when you visit
+{{SITE}}. It is written to be read, not to be survived.
+
+# The short version
+
+This site is self-hosted. It has no advertising, no third-party analytics, and
+no tracking cookies. Nothing about your visit is sold or shared with anyone.
 
 # What is collected
 
-This site is self-hosted and does not use third-party analytics, advertising, or
-tracking cookies.
+**Server logs.** Like nearly every web server, this one records each request:
+your IP address, the page requested, the date and time, the referring page, and
+your browser's user-agent string. These are used to run the site, diagnose
+faults, and identify abuse.
 
-The web server keeps standard request logs — IP address, page requested, time,
-browser user-agent — which are used to operate and secure the site.
+**A cookie, only if you unlock a collection.** If you enter a password for a
+private collection, a cookie is set so you aren't asked again. It records only
+that the password was entered correctly for that one collection. It contains no
+personal information and is not used for tracking.
 
-A cookie is set only if you unlock a password-protected collection, to remember
-that you entered the password. It contains no personal information.
+**A cookie, only if you sign in.** Administrators of the site get a session
+cookie when they log in. Visitors never receive one.
+
+That is the complete list. There is no analytics script, no advertising
+identifier, no fingerprinting, no social media pixel, and no third-party
+JavaScript on any page.
 
 # What is not done
 
-Your visit is not sold, shared with advertisers, or used to build a profile of
-you. There are no third-party scripts on these pages.
+Your visit is not used to build a profile of you, is not sold or rented, and is
+not shared with advertisers or data brokers. Photographs you view are served
+from this site's own server, not from a third-party CDN that could observe you.
+
+# How long it is kept
+
+Server logs are kept only as long as they are useful for operating and securing
+the site, and are then deleted. Cookies expire on their own — the unlock cookie
+within 30 days, the sign-in cookie within 30 days of last use.
+
+# Legal basis
+
+Where the UK GDPR or EU GDPR applies, the lawful basis for processing server
+logs is legitimate interest: running a website securely and reliably. The
+cookies described above are strictly necessary for functions you have asked for,
+so no consent banner is required.
 
 # Your rights
 
-Depending on where you live you may have the right to ask what information is
-held about you, and to have it deleted. Write to [add your contact address].
+Depending on where you live, you may have the right to ask what information is
+held about you, to have it corrected or deleted, to object to its processing, or
+to complain to a data protection regulator. Write to [add your contact address]
+and it will be dealt with promptly.
+
+# Children
+
+This site is not directed at children and does not knowingly collect
+information from them.
 
 # Changes
 
 If this policy changes, the date below will change with it.
+
+# Contact
+
+Questions about privacy can be sent to [add your contact address].
 
 _Last updated: [date]._`
 };

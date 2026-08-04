@@ -23,7 +23,9 @@
 	not part of the public site.
 -->
 <div class="root" style:--color-accent={data.accentColor ?? undefined}>
-	{@render children()}
+	<div class="page">
+		{@render children()}
+	</div>
 
 	{#if !page.url.pathname.startsWith('/admin')}
 		<Footer artist={data.artistName} legal={data.legal} />
@@ -33,12 +35,26 @@
 <style>
 	/*
 	 * A flex column so the footer sits at the bottom of short pages rather than
-	 * floating mid-screen. `display: contents` would drop the box entirely and
-	 * take the layout with it.
+	 * floating mid-screen.
 	 */
 	.root {
 		display: flex;
 		flex-direction: column;
 		min-height: 100svh;
+	}
+
+	/*
+	 * Page content lives in its own block container rather than being a direct
+	 * flex child.
+	 *
+	 * Every page centres its sections with `max-width` plus `margin: 0 auto`. As
+	 * flex items those auto margins apply to the *cross* axis, which makes the
+	 * element shrink to its content and centre that instead of filling the width
+	 * — so headers collapsed to the width of their text and drifted into the
+	 * middle of the page while the grid beneath stayed left-aligned. Inside a
+	 * plain block container the same margins behave normally.
+	 */
+	.page {
+		flex: 1;
 	}
 </style>

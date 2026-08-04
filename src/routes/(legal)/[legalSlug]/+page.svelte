@@ -31,10 +31,19 @@
 </article>
 
 <style>
+	/* Shares the site's measure so the text starts on the same left edge as the
+	   galleries, rather than floating in a centred column of its own. */
 	article {
-		max-width: 40rem;
+		max-width: 78rem;
 		margin: 0 auto;
 		padding: 3rem 1.5rem 8rem;
+	}
+
+	/* Prose still keeps a readable line length within that wider container. */
+	h1,
+	h2,
+	p {
+		max-width: 40rem;
 	}
 
 	.back {
