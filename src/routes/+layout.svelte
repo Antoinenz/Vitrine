@@ -19,8 +19,8 @@
 	so it can't inject anything into the style attribute.
 -->
 <!--
-	The footer is suppressed in the admin area, which has its own chrome and is
-	not part of the public site.
+	Still suppressed under `/admin`, which is now only the photo workbench —
+	the last piece of the old panel, and the last thing left to bring inline.
 -->
 <div class="root" style:--color-accent={data.accentColor ?? undefined}>
 	<div class="page">
@@ -34,6 +34,7 @@
 			licence={data.licence}
 			note={data.footerNote}
 			links={data.footerLinks}
+			isOwner={data.isOwner}
 		/>
 	{/if}
 </div>

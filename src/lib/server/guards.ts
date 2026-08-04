@@ -4,24 +4,41 @@ import { db } from './db';
 import { collections, type Collection, type User } from './db/schema';
 
 /**
- * Authorisation helpers for admin routes.
+ * Authorisation helpers for anything the artist owns.
  *
- * Every admin load function and action goes through these rather than checking
- * `locals.user` inline. Centralising it means a new route can't accidentally
- * ship without a check, and the redirect behaviour stays consistent.
+ * Every owner-only load function and action goes through these rather than
+ * checking `locals.user` inline. Centralising it means a new route can't
+ * accidentally ship without a check, and the redirect behaviour stays
+ * consistent — which matters more now that editing happens inline on public
+ * pages, where an unguarded action would sit next to unguarded public code.
  */
+
+/** Reachable while the account is pinned to a password change. */
+const PASSWORD_EXEMPT = new Set(['/password', '/logout']);
 
 /**
  * Requires a signed-in owner, redirecting to the login page otherwise.
  *
- * The current path is passed as `next` so the user lands back where they were
- * trying to go after logging in, rather than being dumped on a dashboard.
+ * The current path is passed as `next` so the artist lands back where they were
+ * trying to go after signing in, rather than being dumped on a dashboard.
+ *
+ * This also carries the forced-password pin that the deleted `/admin` layout
+ * used to own, which makes it *stronger* than before: layout loads never ran
+ * for `+server.ts` endpoints, so the upload endpoint was reachable by an
+ * account still using its bootstrap password.
  */
 export function requireOwner(locals: App.Locals, pathname?: string): User {
 	if (!locals.user) {
-		const next = pathname && pathname !== '/admin' ? `?next=${encodeURIComponent(pathname)}` : '';
-		redirect(303, `/admin/login${next}`);
+		const next = pathname ? `?next=${encodeURIComponent(pathname)}` : '';
+		redirect(303, `/login${next}`);
 	}
+
+	// A bootstrap password from an env file or compose config shouldn't stay
+	// usable, so the account is pinned to the change screen until it's rotated.
+	if (locals.user.mustChangePassword && !(pathname && PASSWORD_EXEMPT.has(pathname))) {
+		redirect(303, '/password');
+	}
+
 	return locals.user;
 }
 

@@ -65,6 +65,7 @@ export const actions: Actions = {
 		const session = createSession(token, user.id);
 		setSessionCookie(event, token, session.expiresAt);
 
-		redirect(303, '/admin/collections');
+		// Back to the gallery, which is now also where the editing happens.
+		redirect(303, '/');
 	}
 };

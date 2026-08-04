@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { findLicence, DEFAULT_LICENCE } from '$lib/licences';
 
 	/**
@@ -8,20 +9,35 @@
 	 * Legal links appear only for pages the operator has actually written — an
 	 * install that hasn't filled them in shows no dead links rather than linking
 	 * to a 404 or to empty boilerplate.
+	 *
+	 * It is also the way in and out of editing. There is no admin URL to
+	 * remember any more: the artist signs in here, and the same gallery comes
+	 * back with its controls showing.
 	 */
 	let {
 		artist,
 		legal,
 		licence,
 		note,
-		links
+		links,
+		isOwner
 	}: {
 		artist: string;
 		legal: { slug: string; title: string }[];
 		licence: string | null;
 		note: string;
 		links: { label: string; url: string }[];
+		isOwner: boolean;
 	} = $props();
+
+	/**
+	 * Sign-in returns to the page it was clicked from.
+	 *
+	 * A plain link rather than a modal, so the `next` round trip, the rate
+	 * limiter and the "no account yet" message all keep working without
+	 * JavaScript.
+	 */
+	const signInHref = $derived(`/login?next=${encodeURIComponent(page.url.pathname)}`);
 
 	const year = new Date().getFullYear();
 	const chosen = $derived(findLicence(licence));
@@ -60,6 +76,18 @@
 				<a href={resolve('/(legal)/[legalSlug]', { legalSlug: page.slug })}>{page.title}</a>
 			{/each}
 			<a class="powered" href="https://github.com/Antoinenz/vitrine" rel="noopener">Vitrine</a>
+
+			{#if isOwner}
+				<!-- POST, so no page can sign the artist out with an <img> tag. -->
+				<form method="POST" action="/logout">
+					<button type="submit">Sign out</button>
+				</form>
+			{:else}
+				<!-- `next` is built from the current path, which `resolve()` can't
+				     express since it takes route IDs rather than URLs. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a href={signInHref} rel="nofollow">Sign in</a>
+			{/if}
 		</nav>
 	</div>
 </footer>
@@ -125,5 +153,24 @@
 
 	.powered {
 		opacity: 0.7;
+	}
+
+	/* Sign out sits in a nav of links, so it should read as one. */
+	nav form {
+		display: contents;
+	}
+
+	nav button {
+		padding: 0;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: 0.78rem;
+		color: var(--color-ink-subtle);
+		cursor: pointer;
+	}
+
+	nav button:hover {
+		color: var(--color-ink);
 	}
 </style>

@@ -55,14 +55,14 @@ export default async function globalSetup() {
 		await new Promise((r) => setTimeout(r, 250));
 	}
 
-	await ctx.post('/admin/login', {
+	await ctx.post('/login', {
 		form: { email: 'e2e@test.com', password: 'bootstrappassword' },
 		maxRedirects: 0
 	});
 
 	// The account is seeded with `mustChangePassword`, so this is required before
 	// anything else is reachable.
-	await ctx.post('/admin/password', {
+	await ctx.post('/password', {
 		form: {
 			current: 'bootstrappassword',
 			next: 'rotatedpassword123',
