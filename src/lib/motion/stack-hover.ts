@@ -24,16 +24,18 @@ import { gsap, canHover, prefersReducedMotion, MOTION } from './gsap';
 const MAX_TILT_Y = 5;
 const MAX_TILT_X = 4;
 
-/** Peak pull toward the cursor, in pixels, for a card directly beneath it. */
-const MAGNET_STRENGTH = 34;
-
 /**
- * Distance over which the magnet fades, as a fraction of the stack's diagonal.
+ * Magnet travel as a fraction of the stack's own size.
  *
- * Proportional rather than a fixed pixel radius, so the effect feels the same
- * on a small stack as on a large one.
+ * Following GSAP's magnetic-button demo, the offset is a straight mapping of
+ * where the cursor is within the stack rather than a force computed from
+ * distance: at the left edge the cards sit `-STRENGTH * width / 2` across, at
+ * the right edge the same amount the other way, and linearly between. A
+ * mapping has no state and no feedback, so the same cursor position always
+ * produces the same arrangement — the previous distance-based version could
+ * settle differently depending on which way the pointer had come in.
  */
-const MAGNET_REACH = 1.15;
+const MAGNET_STRENGTH = 0.16;
 
 /** Separation along Z when the pile lifts. */
 const LAYER_DEPTH = 14;
@@ -86,8 +88,20 @@ export function stackHover(node: HTMLElement) {
 	const tiltY = gsap.quickTo(node, 'rotationY', { duration: MOTION.hover, ease: MOTION.ease });
 	const tiltX = gsap.quickTo(node, 'rotationX', { duration: MOTION.hover, ease: MOTION.ease });
 
-	const toX = cards.map((c) => gsap.quickTo(c, 'x', { duration: 0.6, ease: MOTION.ease }));
-	const toY = cards.map((c) => gsap.quickTo(c, 'y', { duration: 0.6, ease: MOTION.ease }));
+	/**
+	 * `overwrite: 'auto'` rather than the demo's `true`.
+	 *
+	 * `true` kills *every* tween on the target, which here would include the idle
+	 * sway below — the pile would freeze the moment the pointer entered. `'auto'`
+	 * kills only tweens competing for the same properties, so `x`/`y` are taken
+	 * over cleanly while `rotation` keeps running.
+	 */
+	const toX = cards.map((c) =>
+		gsap.quickTo(c, 'x', { duration: 0.4, ease: 'power2.out', overwrite: 'auto' })
+	);
+	const toY = cards.map((c) =>
+		gsap.quickTo(c, 'y', { duration: 0.4, ease: 'power2.out', overwrite: 'auto' })
+	);
 	const toZ = cards.map((c) => gsap.quickTo(c, 'z', { duration: MOTION.hover, ease: MOTION.ease }));
 
 	gsap.set(node, { transformPerspective: 1100, transformStyle: 'preserve-3d' });
@@ -116,34 +130,45 @@ export function stackHover(node: HTMLElement) {
 
 	function onMove(event: PointerEvent) {
 		const rect = node.getBoundingClientRect();
-		// -0.5 … 0.5 relative to the centre of the stack.
-		const px = (event.clientX - rect.left) / rect.width - 0.5;
-		const py = (event.clientY - rect.top) / rect.height - 0.5;
 
-		tiltY(px * MAX_TILT_Y * 2);
-		// Inverted, so pushing the pointer up tips the top of the stack away.
-		tiltX(-py * MAX_TILT_X * 2);
+		/**
+		 * The cursor's offset from the centre of the stack, in pixels.
+		 *
+		 * `mapRange` is the mapping used in GSAP's magnetic-button demo: the left
+		 * edge of the zone maps to `-width / 2`, the right edge to `+width / 2`.
+		 * It reads the pointer and nothing else, so there is no state to drift.
+		 */
+		const dx = gsap.utils.mapRange(
+			rect.left,
+			rect.right,
+			-rect.width / 2,
+			rect.width / 2,
+			event.clientX
+		);
+		const dy = gsap.utils.mapRange(
+			rect.top,
+			rect.bottom,
+			-rect.height / 2,
+			rect.height / 2,
+			event.clientY
+		);
 
-		const reach = Math.hypot(rect.width, rect.height) * MAGNET_REACH * 0.5;
+		/**
+		 * The stack leans *toward* the cursor: the edge under the pointer rises
+		 * to meet it and the far edge drops away.
+		 *
+		 * Both CSS rotations are positive away from the viewer — `rotateY` swings
+		 * the right edge back, `rotateX` swings the top edge back — so lifting the
+		 * near edge means negating both. Tilting the other way put the surface in
+		 * opposition to the magnet, the pile sinking under the cursor while the
+		 * prints reached out to it, which is what read as an inverted axis.
+		 */
+		tiltY((-dx / rect.width) * MAX_TILT_Y * 2);
+		tiltX((dy / rect.height) * MAX_TILT_X * 2);
 
 		for (let i = 0; i < cards.length; i++) {
-			const card = cards[i].getBoundingClientRect();
-			const dx = event.clientX - (card.left + card.width / 2);
-			const dy = event.clientY - (card.top + card.height / 2);
-			const distance = Math.hypot(dx, dy);
-
-			/**
-			 * Pull rises as the cursor nears the card rather than being a flat
-			 * function of position, so a print reaches toward the pointer when it
-			 * comes close and settles again as it moves away. Squared, so the
-			 * approach is felt rather than merely linear.
-			 */
-			const nearness = Math.max(0, 1 - distance / reach);
-			const force = MAGNET_STRENGTH * nearness * nearness * pull[i];
-			const unit = distance || 1;
-
-			toX[i]((dx / unit) * force);
-			toY[i]((dy / unit) * force);
+			toX[i](dx * MAGNET_STRENGTH * pull[i]);
+			toY[i](dy * MAGNET_STRENGTH * pull[i]);
 		}
 	}
 
