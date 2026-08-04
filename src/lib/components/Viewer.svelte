@@ -49,8 +49,12 @@
 	 * The full-resolution rendition is only requested once someone actually zooms
 	 * in. A casual viewer scrolling through a collection never downloads a 4K
 	 * file they can't distinguish from the one already on screen.
+	 *
+	 * Both URLs come from the server, which builds them from the renditions that
+	 * actually exist. Assembling one here from a width and a guessed extension is
+	 * how the viewer ended up requesting a file that had never been generated.
 	 */
-	const fullSrc = $derived(zoomed ? `/i/${photo.id}/${photo.maxWidth}.webp` : photo.src);
+	const fullSrc = $derived(zoomed ? photo.zoomSrc : photo.src);
 
 	function resetZoom() {
 		zoom = 1;
@@ -122,7 +126,30 @@
 	// --- navigation ---------------------------------------------------------
 
 	let stageEl = $state<HTMLElement>();
-	let imageEl = $state<HTMLElement>();
+	let imageEl = $state<HTMLImageElement>();
+
+	// --- load state ---------------------------------------------------------
+
+	/**
+	 * Whether the photograph currently on screen has decoded, failed, or is
+	 * still arriving.
+	 *
+	 * Keyed by the URL rather than the index, so switching between the preview
+	 * and the zoomed rendition is also covered — and so a cached image that
+	 * completes before the handler attaches doesn't leave a spinner running
+	 * forever.
+	 */
+	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
+
+	$effect(() => {
+		void fullSrc;
+		loadState = 'loading';
+		// A cached image can already be complete by the time this runs, in which
+		// case no load event will ever fire.
+		if (imageEl?.complete) {
+			loadState = imageEl.naturalWidth > 0 ? 'ready' : 'error';
+		}
+	});
 
 	/** Which way the last step went, so the arrival slides in from the far side. */
 	let slideFrom = $state(0);
@@ -413,8 +440,34 @@
 			src={fullSrc}
 			alt={photo.alt}
 			style:transform="translate3d({panX}px, {panY}px, 0) scale({zoom})"
+			style:visibility={loadState === 'ready' ? 'visible' : 'hidden'}
 			draggable="false"
+			onload={() => (loadState = 'ready')}
+			onerror={() => (loadState = 'error')}
 		/>
+
+		{#if loadState === 'loading'}
+			<!-- Sits behind the image rather than replacing it, so the swap when it
+			     arrives doesn't shift anything. -->
+			<div class="status" role="status" aria-label="Loading photograph">
+				<span class="spinner"></span>
+			</div>
+		{:else if loadState === 'error'}
+			<div class="status error" role="alert">
+				<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+					<path
+						d="M12 3.5 1.7 21h20.6L12 3.5Z"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linejoin="round"
+					/>
+					<path d="M12 10v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+					<circle cx="12" cy="17.6" r="1.05" fill="currentColor" />
+				</svg>
+				<p>This photograph couldn’t be loaded.</p>
+			</div>
+		{/if}
 	</div>
 
 	{#if photo.caption || showMetadata}
@@ -552,6 +605,55 @@
 
 	.stage.dragging img {
 		transition: none;
+	}
+
+	/* Centred in the stage, beneath the image so nothing moves on arrival. */
+	.status {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-content: center;
+		justify-items: center;
+		gap: 0.85rem;
+		pointer-events: none;
+		color: #8b8681;
+	}
+
+	.status p {
+		margin: 0;
+		font-size: 0.85rem;
+	}
+
+	.status.error {
+		color: #d99a94;
+	}
+
+	.spinner {
+		width: 1.75rem;
+		height: 1.75rem;
+		border: 2px solid currentColor;
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 700ms linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/*
+	 * A spinning ring is motion, and someone who asked for less of it should get
+	 * a static indicator rather than nothing at all — they still need to know the
+	 * photograph is on its way.
+	 */
+	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation: none;
+			border-top-color: currentColor;
+			opacity: 0.55;
+		}
 	}
 
 	.info {

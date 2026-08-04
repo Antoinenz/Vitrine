@@ -35,8 +35,10 @@ export interface PhotoView {
 	sources: PhotoSource[];
 	/** Fallback for browsers that match no <source>. */
 	src: string;
-	/** Widest rendition available, used by the viewer when zoomed. */
+	/** Widest width available *in the fallback format*. */
 	maxWidth: number;
+	/** Largest rendition, for the viewer once someone zooms in. */
+	zoomSrc: string;
 	/**
 	 * URL for link-preview scrapers. Derived from what was actually generated
 	 * rather than assumed, so it resolves for photographs narrower than the
@@ -101,6 +103,23 @@ export function toPhotoViews(rows: Photo[], collection: Collection): PhotoView[]
 		)
 		.all();
 
+	return buildPhotoViews(ready, derivativeRows, collection);
+}
+
+/**
+ * The pure half of `toPhotoViews`: given photos and their renditions, build the
+ * view models.
+ *
+ * Separated from the query so the URL construction can be tested directly
+ * against arbitrary combinations of widths and formats. That construction is
+ * where a photograph's URLs are decided, and it has already shipped one bug
+ * that only appears for particular rendition sets.
+ */
+export function buildPhotoViews(
+	ready: Photo[],
+	derivativeRows: DerivativeRow[],
+	collection: Collection
+): PhotoView[] {
 	const grouped = new Map<string, DerivativeRow[]>();
 	for (const row of derivativeRows) {
 		const list = grouped.get(row.photoId) ?? [];
@@ -110,24 +129,48 @@ export function toPhotoViews(rows: Photo[], collection: Collection): PhotoView[]
 
 	return ready.map((photo) => {
 		const mine = grouped.get(photo.id) ?? [];
-		const widths = mine.map((d) => d.width);
-		const maxWidth = widths.length ? Math.max(...widths) : photo.width;
 
-		// The widest rendition in the most compatible format, so the fallback
-		// works even in a browser that understands none of the <source> types.
-		const fallbackFormat = mine.some((d) => d.format === 'jpeg')
-			? 'jpeg'
-			: mine.some((d) => d.format === 'webp')
-				? 'webp'
-				: (mine[0]?.format ?? 'webp');
+		/**
+		 * Widths available per format.
+		 *
+		 * Every URL below is built by choosing a format first and then a width
+		 * *from that format's list*. Picking them independently is what produced
+		 * `/i/<id>/2048.jpeg` on installs where WebP ran to 2048 but the JPEG —
+		 * generated only for link previews — existed solely at 1280. That
+		 * combination was never written to disk, so the viewer 404'd.
+		 */
+		const widthsFor = new Map<string, number[]>();
+		for (const d of mine) {
+			const list = widthsFor.get(d.format) ?? [];
+			list.push(d.width);
+			widthsFor.set(d.format, list);
+		}
+		for (const list of widthsFor.values()) list.sort((a, b) => a - b);
 
-		// Prefer JPEG at (or just under) the social width; fall back to whatever
-		// exists so the tag never points at a missing file.
-		const jpegs = mine.filter((d) => d.format === 'jpeg').map((d) => d.width);
-		const socialWidth = jpegs.length
-			? (jpegs.filter((w) => w <= SOCIAL_WIDTH).sort((a, b) => b - a)[0] ?? Math.min(...jpegs))
-			: maxWidth;
-		const socialFormat = jpegs.length ? 'jpeg' : fallbackFormat;
+		const widest = (format: string) => {
+			const list = widthsFor.get(format);
+			return list?.length ? list[list.length - 1] : null;
+		};
+
+		// Most compatible format for the plain <img>, so it still resolves in a
+		// browser that matches none of the <source> types.
+		const fallbackFormat =
+			(['jpeg', 'webp', 'avif'] as const).find((f) => widthsFor.has(f)) ?? 'webp';
+		const maxWidth = widest(fallbackFormat) ?? photo.width;
+
+		// Most efficient format for the zoomed view — it's the largest file the
+		// visitor will download, so compression matters more than compatibility.
+		const zoomFormat = FORMAT_ORDER.find((f) => widthsFor.has(f)) ?? fallbackFormat;
+		const zoomWidth = widest(zoomFormat) ?? maxWidth;
+
+		// Preview scrapers lag browsers on format support, so JPEG is preferred
+		// here even though it's the largest — but only at a width that exists.
+		const socialFormat = widthsFor.has('jpeg') ? 'jpeg' : fallbackFormat;
+		const socialCandidates = widthsFor.get(socialFormat) ?? [];
+		const socialWidth =
+			[...socialCandidates].reverse().find((w) => w <= SOCIAL_WIDTH) ??
+			socialCandidates[0] ??
+			maxWidth;
 
 		return {
 			id: photo.id,
@@ -142,6 +185,7 @@ export function toPhotoViews(rows: Photo[], collection: Collection): PhotoView[]
 			sources: buildSources(photo.id, mine),
 			src: `/i/${photo.id}/${maxWidth}.${fallbackFormat}`,
 			maxWidth,
+			zoomSrc: `/i/${photo.id}/${zoomWidth}.${zoomFormat}`,
 			socialSrc: `/i/${photo.id}/${socialWidth}.${socialFormat}`,
 			exif: projectExif(photo.exif, collection.metadataFields)
 		};

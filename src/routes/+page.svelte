@@ -174,13 +174,12 @@
 								style:--drift-dir={s.driftDir}
 								style:z-index={collection.stack.length - i}
 							>
-								<div class="card">
+								<div class="card" style:--ratio="{photo.width} / {photo.height}">
 									<PhotoImage
 										{photo}
 										sizes="(max-width: 40rem) 80vw, 320px"
 										loading={i === 0 ? 'eager' : 'lazy'}
 										fetchpriority={i === 0 ? 'high' : 'auto'}
-										aspect="4 / 3"
 									/>
 								</div>
 							</div>
@@ -293,12 +292,22 @@
 	 * one vanishing point — set per-layer, each would rotate about its own centre
 	 * and the stack would splay apart instead of tilting as one object.
 	 */
+	/*
+	 * The stack has a fixed footprint, and each print keeps its own shape inside
+	 * it.
+	 *
+	 * Sizing the container from its tallest card would let a portrait behind a
+	 * landscape push the caption down — and letting each card drive layout gave
+	 * a pile of mismatched rectangles. A constant box with the photographs
+	 * *contained* within it keeps every stack the same height on the page while
+	 * the prints themselves stay whatever shape they were taken.
+	 */
 	.stack {
 		position: relative;
+		aspect-ratio: 4 / 3;
 		perspective: var(--stack-perspective);
 		transform-style: preserve-3d;
-		/* Room for the fanned layers, so a hovered stack never clips its
-		   neighbours or provokes a scrollbar. */
+		/* Room for the fan, so a hovered stack never clips its neighbours. */
 		padding: calc(var(--stack-offset) * var(--depth));
 	}
 
@@ -320,6 +329,15 @@
 	}
 
 	.card {
+		/*
+		 * Sized by the photograph's own ratio and contained in the layer, so a
+		 * portrait is narrow and tall, a panorama wide and short, and neither
+		 * escapes the stack's footprint.
+		 */
+		aspect-ratio: var(--ratio);
+		height: 100%;
+		width: auto;
+		max-width: 100%;
 		/* Square corners — a print has edges, not radii. */
 		overflow: hidden;
 		background: var(--color-surface-raised);
@@ -336,10 +354,12 @@
 			0 18px 44px -18px rgb(28 25 23 / 0.4);
 	}
 
-	/* Only the top layer is in flow; the rest stack up behind it. */
-	.layer:not(:first-child) {
+	/* Every layer fills the stack's box and centres its card within it. */
+	.layer {
 		position: absolute;
 		inset: calc(var(--stack-offset) * var(--depth));
+		display: grid;
+		place-items: center;
 	}
 
 	/*
@@ -353,6 +373,11 @@
 	.stack-link:focus-visible .layer {
 		transform: translate3d(calc(var(--dx) * 2.4), calc(var(--dy) * 2.4), 0)
 			rotate(calc(var(--rot) * 1.5));
+	}
+
+	.card :global(.frame) {
+		width: 100%;
+		height: 100%;
 	}
 
 	.caption {
