@@ -24,7 +24,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 export const actions: Actions = {
 	default: async (event) => {
-		const { request, cookies, getClientAddress, url } = event;
+		const { request, getClientAddress, url } = event;
 		const data = await request.formData();
 		const email = String(data.get('email') ?? '')
 			.toLowerCase()
@@ -68,7 +68,7 @@ export const actions: Actions = {
 
 		const token = generateSessionToken();
 		const session = createSession(token, user.id);
-		setSessionCookie({ cookies } as never, token, session.expiresAt);
+		setSessionCookie(event, token, session.expiresAt);
 
 		const next = url.searchParams.get('next');
 		// Only ever redirect within this site — an attacker-supplied absolute URL

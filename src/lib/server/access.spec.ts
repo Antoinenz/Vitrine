@@ -84,7 +84,7 @@ describe('collectionAccess', () => {
 	it('grants access once unlocked', () => {
 		const c = makeCollection({ passwordHash: '$argon2id$fake' });
 		const cookies = fakeCookies();
-		grantUnlock(cookies, c);
+		grantUnlock(cookies, c, false);
 		expect(collectionAccess(c, anon, cookies)).toBe('granted');
 	});
 
@@ -100,7 +100,7 @@ describe('collectionAccess', () => {
 	it('keeps a private collection private even when it has a password', () => {
 		const c = makeCollection({ visibility: 'private', passwordHash: '$argon2id$fake' });
 		const cookies = fakeCookies();
-		grantUnlock(cookies, c);
+		grantUnlock(cookies, c, false);
 		expect(collectionAccess(c, anon, cookies)).toBe('denied');
 	});
 
@@ -110,7 +110,7 @@ describe('collectionAccess', () => {
 		const b = makeCollection({ id: 'col-b', passwordHash: '$argon2id$fake' });
 
 		const cookies = fakeCookies();
-		grantUnlock(cookies, a);
+		grantUnlock(cookies, a, false);
 
 		expect(collectionAccess(a, anon, cookies)).toBe('granted');
 		expect(collectionAccess(b, anon, cookies)).toBe('locked');
@@ -123,7 +123,7 @@ describe('collectionAccess', () => {
 	it('invalidates a grant when the password changes', () => {
 		const before = makeCollection({ passwordHash: '$argon2id$old' });
 		const cookies = fakeCookies();
-		grantUnlock(cookies, before);
+		grantUnlock(cookies, before, false);
 		expect(collectionAccess(before, anon, cookies)).toBe('granted');
 
 		const after = makeCollection({ passwordHash: '$argon2id$new' });
@@ -139,7 +139,7 @@ describe('collectionAccess', () => {
 	it('re-locks after the grant is revoked', () => {
 		const c = makeCollection({ passwordHash: '$argon2id$fake' });
 		const cookies = fakeCookies();
-		grantUnlock(cookies, c);
+		grantUnlock(cookies, c, false);
 		revokeUnlock(cookies, c.id);
 		expect(collectionAccess(c, anon, cookies)).toBe('locked');
 	});

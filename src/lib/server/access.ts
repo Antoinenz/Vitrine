@@ -4,7 +4,6 @@ import { encodeHexLowerCase } from '@oslojs/encoding';
 import { constantTimeEqual } from '@oslojs/crypto/subtle';
 import type { Cookies } from '@sveltejs/kit';
 import type { Collection } from './db/schema';
-import { IS_PRODUCTION } from './config';
 
 /**
  * The single place that decides who may see a collection.
@@ -47,12 +46,15 @@ function grantToken(collection: Collection): string {
 	return encodeHexLowerCase(mac);
 }
 
-export function grantUnlock(cookies: Cookies, collection: Collection): void {
+export function grantUnlock(cookies: Cookies, collection: Collection, secure: boolean): void {
 	cookies.set(unlockCookieName(collection.id), grantToken(collection), {
 		path: '/',
 		httpOnly: true,
 		sameSite: 'lax',
-		secure: IS_PRODUCTION,
+		// Follows the request scheme, not NODE_ENV — see `isSecureRequest`. A
+		// `Secure` cookie over plain http is dropped by the browser, which here
+		// would mean the password appearing to be rejected on every attempt.
+		secure,
 		maxAge: 60 * 60 * 24 * 30
 	});
 }

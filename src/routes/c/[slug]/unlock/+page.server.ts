@@ -3,7 +3,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { collections, users } from '$lib/server/db/schema';
-import { verifyPassword } from '$lib/server/auth';
+import { verifyPassword, isSecureRequest } from '$lib/server/auth';
 import { collectionAccess, grantUnlock } from '$lib/server/access';
 import { rateLimit, resetRateLimit, LIMITS } from '$lib/server/rate-limit';
 
@@ -35,7 +35,8 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ params, request, cookies, locals, getClientAddress, url }) => {
+	default: async (event) => {
+		const { params, request, cookies, locals, getClientAddress, url } = event;
 		const collection = findCollection(params.slug);
 
 		if (collectionAccess(collection, locals, cookies) === 'denied') error(404);
@@ -57,7 +58,7 @@ export const actions: Actions = {
 		}
 
 		resetRateLimit(key);
-		grantUnlock(cookies, collection);
+		grantUnlock(cookies, collection, isSecureRequest(event));
 
 		const next = url.searchParams.get('next');
 		// Confined to this collection: an attacker-supplied `next` must not turn
