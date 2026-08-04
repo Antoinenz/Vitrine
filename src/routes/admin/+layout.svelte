@@ -12,7 +12,8 @@
 	// at build time — a typo becomes a compile error rather than a dead link.
 	const nav = [
 		{ href: resolve('/admin/collections'), label: 'Collections' },
-		{ href: resolve('/admin/profile'), label: 'Profile' }
+		{ href: resolve('/admin/profile'), label: 'Profile' },
+		{ href: resolve('/admin/pages'), label: 'Pages' }
 	];
 
 	const home = resolve('/');

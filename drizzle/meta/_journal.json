@@ -8,6 +8,13 @@
       "when": 1785723312743,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785808582676,
+      "tag": "0001_legal_pages",
+      "breakpoints": true
     }
   ]
 }
