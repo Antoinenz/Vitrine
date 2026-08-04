@@ -10,23 +10,19 @@ import { gsap, canHover, prefersReducedMotion, MOTION } from './gsap';
  * - `.stack` — GSAP only: the 3D tilt.
  * - `.layer` — CSS only: the resting scatter and the hover spread. Untouched by
  *   JS, so the stacks still fan without JavaScript.
- * - `.card`  — GSAP only: magnet offset, depth and cursor rotation.
+ * - `.card`  — GSAP only: magnet offset, depth, and the idle sway.
  *
  * ## Depth falloff
  *
  * Every effect is scaled by `pull[i]`, which runs from 1 at the top of the pile
  * to 0 at the bottom. The top print reacts fully, each one below it less, and
  * the last barely at all — that difference is what makes the stack read as
- * loose sheets rather than one rigid object, which is why the falloff applies
- * to rotation and magnet alike and not just to position.
+ * loose sheets rather than one rigid object.
  */
 
 /** Tilt of the whole stack at its far edge, in degrees. Deliberately gentle. */
 const MAX_TILT_Y = 5;
 const MAX_TILT_X = 4;
-
-/** How far the top card turns as the cursor crosses the stack, in degrees. */
-const MAX_CARD_ROTATE = 5.5;
 
 /** Peak pull toward the cursor, in pixels, for a card directly beneath it. */
 const MAGNET_STRENGTH = 34;
@@ -44,7 +40,7 @@ const LAYER_DEPTH = 14;
 
 export interface StackHoverHandle {
 	/**
-	 * Snaps tilt, magnet, rotation and depth back to rest, synchronously.
+	 * Snaps tilt, magnet, sway and depth back to rest, synchronously.
 	 *
 	 * GSAP's Flip plugin has no 3D support, so a stack captured mid-tilt measures
 	 * a skewed box and its photographs fly in from the wrong place. The click
@@ -93,9 +89,6 @@ export function stackHover(node: HTMLElement) {
 	const toX = cards.map((c) => gsap.quickTo(c, 'x', { duration: 0.6, ease: MOTION.ease }));
 	const toY = cards.map((c) => gsap.quickTo(c, 'y', { duration: 0.6, ease: MOTION.ease }));
 	const toZ = cards.map((c) => gsap.quickTo(c, 'z', { duration: MOTION.hover, ease: MOTION.ease }));
-	const toRotate = cards.map((c) =>
-		gsap.quickTo(c, 'rotation', { duration: 0.7, ease: MOTION.ease })
-	);
 
 	gsap.set(node, { transformPerspective: 1100, transformStyle: 'preserve-3d' });
 
@@ -104,9 +97,8 @@ export function stackHover(node: HTMLElement) {
 	 * CSS custom properties the server derived from the photo id so the motion is
 	 * stable across reloads.
 	 *
-	 * It animates the same `rotation` the cursor drives, so it pauses while the
-	 * pointer is over the stack and resumes on leave. Two tweens fighting over
-	 * one property would jitter.
+	 * Nothing else writes `rotation` any more, so it simply runs continuously —
+	 * it only needs pausing before the transition measures the stack.
 	 */
 	const drifts = cards.map((card) => {
 		const style = getComputedStyle(card.parentElement ?? card);
@@ -152,19 +144,10 @@ export function stackHover(node: HTMLElement) {
 
 			toX[i]((dx / unit) * force);
 			toY[i]((dy / unit) * force);
-
-			/**
-			 * Rotation follows where the cursor *is*, not which way it moved:
-			 * crossing the stack turns the prints one way, coming back unwinds
-			 * them. Tying it to movement direction would spin them unpredictably
-			 * on small jitters.
-			 */
-			toRotate[i](px * MAX_CARD_ROTATE * 2 * pull[i]);
 		}
 	}
 
 	function onEnter() {
-		for (const drift of drifts) drift.pause();
 		/**
 		 * The *top* card lifts furthest forward. Under `preserve-3d` the browser
 		 * paints by 3D position and ignores `z-index`, so lifting by ascending
@@ -180,12 +163,7 @@ export function stackHover(node: HTMLElement) {
 			toX[i](0);
 			toY[i](0);
 			toZ[i](0);
-			toRotate[i](0);
 		}
-		// Let the prints settle before the idle sway takes over again.
-		gsap.delayedCall(0.7, () => {
-			for (const drift of drifts) drift.resume();
-		});
 	}
 
 	node.addEventListener('pointermove', onMove);

@@ -38,9 +38,9 @@
 	 */
 	function scatter(id: string) {
 		return {
-			rotate: `${(spread(id, 1) * 11).toFixed(2)}deg`,
-			dx: `${(spread(id, 2) * 20).toFixed(1)}px`,
-			dy: `${(spread(id, 3) * 15).toFixed(1)}px`,
+			rotate: `${(spread(id, 1) * 7).toFixed(2)}deg`,
+			dx: `${(spread(id, 2) * 9).toFixed(1)}px`,
+			dy: `${(spread(id, 3) * 7).toFixed(1)}px`,
 			// Seconds per drift cycle, and which way it leans first.
 			drift: 9 + seeded(id, 4) * 7,
 			driftDir: seeded(id, 5) < 0.5 ? -1 : 1
@@ -308,7 +308,7 @@
 		perspective: var(--stack-perspective);
 		transform-style: preserve-3d;
 		/* Room for the fan, so a hovered stack never clips its neighbours. */
-		padding: calc(var(--stack-offset) * var(--depth) * 1.6);
+		padding: calc(var(--stack-offset) * var(--depth));
 	}
 
 	/*
@@ -357,7 +357,7 @@
 	/* Every layer fills the stack's box and centres its card within it. */
 	.layer {
 		position: absolute;
-		inset: calc(var(--stack-offset) * var(--depth) * 1.6);
+		inset: calc(var(--stack-offset) * var(--depth));
 		display: grid;
 		place-items: center;
 	}
