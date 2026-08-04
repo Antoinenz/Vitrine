@@ -39,3 +39,4 @@ playwright-report
 
 # Test instance data (systemd service on :5174)
 /data-prod
+/build-prod
