@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { collections, photos, profiles, users } from '$lib/server/db/schema';
@@ -17,11 +17,24 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const profile = db.select().from(profiles).where(eq(profiles.userId, owner.id)).get();
 
+	/**
+	 * Newest work first by default.
+	 *
+	 * `datedAt` is the date the artist ascribes to the collection, which is not
+	 * the date they got round to uploading it — ordering by `createdAt` would put
+	 * an old series scanned last week above this year's. `coalesce` covers rows
+	 * from before the column existed, and matches the index on
+	 * `(owner_id, dated_at)`.
+	 */
+	const dated = sql`coalesce(${collections.datedAt}, ${collections.createdAt})`;
+
 	const all = db
 		.select()
 		.from(collections)
 		.where(eq(collections.ownerId, owner.id))
-		.orderBy(asc(collections.sortKey))
+		.orderBy(
+			(profile?.collectionOrder ?? 'date') === 'date' ? desc(dated) : asc(collections.sortKey)
+		)
 		.all();
 
 	/**
@@ -80,11 +93,25 @@ export const load: PageServerLoad = async ({ locals }) => {
 				visibility: collection.visibility,
 				hasPassword: !!collection.passwordHash,
 				photoCount: owned.filter((p) => p.status === 'ready').length,
+				/**
+				 * Owner-only progress. Counted from rows already in memory, so this
+				 * costs nothing, and without it a collection whose photographs are
+				 * still being processed looks simply broken to the person who just
+				 * uploaded them.
+				 */
+				pendingCount: isOwner
+					? owned.filter((p) => p.status === 'pending' || p.status === 'processing').length
+					: 0,
+				failedCount: isOwner ? owned.filter((p) => p.status === 'failed').length : 0,
 				stack: toPhotoViews(ordered.slice(0, STACK_DEPTH), collection)
 			};
 		})
-		// A collection with nothing processed yet has no stack to show.
-		.filter((c) => c.stack.length > 0);
+		/**
+		 * A collection with nothing processed yet has no stack to show a visitor.
+		 * The owner still sees it, otherwise a collection they just created would
+		 * vanish the moment it was made and there would be no way back to it.
+		 */
+		.filter((c) => isOwner || c.stack.length > 0);
 
 	return {
 		profile: profile ?? null,

@@ -161,6 +161,27 @@
 						use:stackHover
 						{@attach (node) => returnTransition(node, collection.id)}
 					>
+						<!--
+							Owner-only: a collection with nothing processed yet.
+
+							Deliberately not a `.layer` / `.card` / `[data-photo]` element.
+							Those three are the transition's and the hover's vocabulary; a
+							placeholder answering to them would be cloned into the ghost
+							layer and flown at the grid. `stackHover` finds no `.card` here
+							and returns without binding, so an empty tile is simply inert.
+						-->
+						{#if collection.stack.length === 0}
+							<div class="placeholder">
+								{#if collection.failedCount > 0}
+									{collection.failedCount} failed
+								{:else if collection.pendingCount > 0}
+									{collection.pendingCount} processing…
+								{:else}
+									Empty
+								{/if}
+							</div>
+						{/if}
+
 						{#each collection.stack as photo, i (photo.id)}
 							{@const s = scatter(photo.id)}
 							<div
@@ -400,6 +421,22 @@
 		margin: 0.2rem 0 0;
 		font-size: 0.8rem;
 		color: var(--color-ink-subtle);
+	}
+
+	/*
+	 * The empty/processing tile. Sits inside `.stack`'s padding so it occupies
+	 * exactly the footprint a fanned stack would, and neighbouring collections
+	 * don't shift as photographs finish processing and it is replaced.
+	 */
+	.placeholder {
+		position: absolute;
+		inset: calc(var(--stack-offset) * var(--depth));
+		display: grid;
+		place-items: center;
+		/* Square, like `.card` — a print has edges, not radii. */
+		border: 1px dashed var(--color-hairline);
+		color: var(--color-ink-subtle);
+		font-size: 0.8rem;
 	}
 
 	.tag {

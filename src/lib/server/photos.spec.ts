@@ -26,6 +26,7 @@ const COLLECTION: Collection = {
 	zipEnabled: false,
 	stripExifOnDownload: false,
 	metadataFields: [],
+	datedAt: null,
 	publishedAt: null,
 	createdAt: new Date(),
 	updatedAt: new Date()

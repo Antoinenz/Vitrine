@@ -76,6 +76,9 @@ export const actions: Actions = {
 					slug,
 					title,
 					sortKey: keyBetween(null, first?.sortKey ?? null),
+					// Today, until the artist dates it themselves. Under the default
+					// ordering that also puts it at the top, agreeing with `sortKey`.
+					datedAt: new Date(),
 					// Private until the artist decides otherwise — publishing should be
 					// a deliberate act, not the default for an empty collection.
 					visibility: 'private'
