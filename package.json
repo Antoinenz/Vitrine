@@ -18,7 +18,9 @@
 		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
-		"db:studio": "drizzle-kit studio"
+		"db:studio": "drizzle-kit studio",
+		"seed": "vite-node scripts/seed.ts",
+		"deploy:test": "bash scripts/deploy-test.sh"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
@@ -46,6 +48,7 @@
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.60.1",
 		"vite": "^8.0.16",
+		"vite-node": "^6.0.0",
 		"vitest": "^4.1.8",
 		"vitest-browser-svelte": "^2.1.1"
 	},

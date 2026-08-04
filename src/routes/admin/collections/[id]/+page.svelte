@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import Uploader from '$lib/components/Uploader.svelte';
@@ -8,6 +9,56 @@
 
 	let confirmingDelete = $state(false);
 	let editingPhoto = $state<string | null>(null);
+
+	// --- reordering ---------------------------------------------------------
+
+	let dragId = $state<string | null>(null);
+	let dropBeforeId = $state<string | null>(null);
+	let reorderForm = $state<HTMLFormElement>();
+	let moveFields = $state({ photoId: '', beforeId: '', afterId: '' });
+
+	/**
+	 * Submits a move through a hidden form rather than `fetch`.
+	 *
+	 * Reusing the same `use:enhance` path as every other action means the page
+	 * data is reloaded and the grid re-sorts itself from the server's answer, so
+	 * the displayed order is always the stored order rather than an optimistic
+	 * guess that could drift from it.
+	 */
+	function commitMove(photoId: string, toIndex: number) {
+		const others = data.photos.filter((p) => p.id !== photoId);
+		const clamped = Math.max(0, Math.min(others.length, toIndex));
+
+		moveFields = {
+			photoId,
+			beforeId: others[clamped - 1]?.id ?? '',
+			afterId: others[clamped]?.id ?? ''
+		};
+		// Wait for the hidden inputs to render with the new values.
+		tick().then(() => reorderForm?.requestSubmit());
+	}
+
+	/** Index a photo would land at if dropped on `targetId`. */
+	function dropIndex(draggedId: string, targetId: string): number {
+		const others = data.photos.filter((p) => p.id !== draggedId);
+		const target = others.findIndex((p) => p.id === targetId);
+		return target === -1 ? others.length : target;
+	}
+
+	function moveBy(photoId: string, delta: number) {
+		const from = data.photos.findIndex((p) => p.id === photoId);
+		if (from === -1) return;
+		const to = from + delta;
+		if (to < 0 || to >= data.photos.length) return;
+
+		/**
+		 * `commitMove` indexes into the list with this photograph *removed*, and
+		 * that removal already shifts everything after it down by one — so
+		 * `from + delta` is the right destination in both directions, with no
+		 * separate adjustment for moving right.
+		 */
+		commitMove(photoId, to);
+	}
 
 	const c = $derived(data.collection);
 
@@ -54,10 +105,43 @@
 	<h2>Photos</h2>
 	<Uploader collectionId={c.id} />
 
+	<form method="POST" action="?/reorder" bind:this={reorderForm} use:enhance style="display: none">
+		<input type="hidden" name="photoId" value={moveFields.photoId} />
+		<input type="hidden" name="beforeId" value={moveFields.beforeId} />
+		<input type="hidden" name="afterId" value={moveFields.afterId} />
+	</form>
+
 	{#if data.photos.length > 0}
+		<p class="reorder-hint">Drag a photograph to reorder, or use ← →.</p>
 		<ul class="grid">
-			{#each data.photos as photo (photo.id)}
-				<li>
+			{#each data.photos as photo, i (photo.id)}
+				<li
+					draggable={photo.status === 'ready'}
+					class:dragging={dragId === photo.id}
+					class:drop-target={dropBeforeId === photo.id}
+					ondragstart={(e) => {
+						dragId = photo.id;
+						e.dataTransfer?.setData('text/plain', photo.id);
+					}}
+					ondragover={(e) => {
+						if (!dragId || dragId === photo.id) return;
+						e.preventDefault();
+						dropBeforeId = photo.id;
+					}}
+					ondragleave={() => {
+						if (dropBeforeId === photo.id) dropBeforeId = null;
+					}}
+					ondrop={(e) => {
+						e.preventDefault();
+						if (dragId && dragId !== photo.id) commitMove(dragId, dropIndex(dragId, photo.id));
+						dragId = null;
+						dropBeforeId = null;
+					}}
+					ondragend={() => {
+						dragId = null;
+						dropBeforeId = null;
+					}}
+				>
 					<div
 						class="thumb"
 						style:background-color={photo.dominantColor ?? 'var(--color-surface-image)'}
@@ -92,6 +176,23 @@
 					{/if}
 
 					<div class="photo-actions">
+						<!-- Dragging is the quick path; these are the accessible one, and
+						     the only one that works without a pointer. -->
+						<button
+							type="button"
+							class="move"
+							disabled={i === 0}
+							aria-label="Move {photo.originalName} earlier"
+							onclick={() => moveBy(photo.id, -1)}>←</button
+						>
+						<button
+							type="button"
+							class="move"
+							disabled={i === data.photos.length - 1}
+							aria-label="Move {photo.originalName} later"
+							onclick={() => moveBy(photo.id, 1)}>→</button
+						>
+
 						<button
 							type="button"
 							onclick={() => (editingPhoto = editingPhoto === photo.id ? null : photo.id)}
@@ -391,6 +492,36 @@
 		display: flex;
 		gap: 0.6rem;
 		margin-top: 0.35rem;
+	}
+
+	li[draggable='true'] {
+		cursor: grab;
+	}
+
+	li.dragging {
+		opacity: 0.4;
+	}
+
+	/* A rule down the leading edge showing where the photograph will land. */
+	li.drop-target {
+		box-shadow: -3px 0 0 var(--color-ink);
+	}
+
+	.reorder-hint {
+		margin: 1.25rem 0 -0.5rem;
+		font-size: 0.75rem;
+		color: var(--color-ink-subtle);
+	}
+
+	.move {
+		font-size: 0.85rem !important;
+		line-height: 1;
+		text-decoration: none !important;
+	}
+
+	.move:disabled {
+		opacity: 0.25;
+		cursor: default;
 	}
 
 	.photo-actions button {

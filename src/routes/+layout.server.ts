@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import type { LayoutServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { profiles, users } from '$lib/server/db/schema';
+import { profiles, users, legalPages } from '$lib/server/db/schema';
 
 /**
  * Supplies the artist's accent colour to every page.
@@ -17,13 +17,28 @@ export const load: LayoutServerLoad = async () => {
 		.orderBy(asc(users.createdAt))
 		.limit(1)
 		.get();
-	if (!owner) return { accentColor: null };
+	if (!owner) return { accentColor: null, artistName: '', legal: [] };
 
 	const profile = db
-		.select({ accentColor: profiles.accentColor })
+		.select({ accentColor: profiles.accentColor, displayName: profiles.displayName })
 		.from(profiles)
 		.where(eq(profiles.userId, owner.id))
 		.get();
 
-	return { accentColor: profile?.accentColor ?? null };
+	/**
+	 * Only pages with content are advertised, so the footer never links to a
+	 * page the operator hasn't written.
+	 */
+	const legal = db
+		.select({ slug: legalPages.slug, title: legalPages.title, content: legalPages.content })
+		.from(legalPages)
+		.all()
+		.filter((p) => p.content.trim())
+		.map(({ slug, title }) => ({ slug, title }));
+
+	return {
+		accentColor: profile?.accentColor ?? null,
+		artistName: profile?.displayName ?? '',
+		legal
+	};
 };

@@ -232,6 +232,36 @@ export const derivatives = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Legal / informational pages
+// ---------------------------------------------------------------------------
+
+export const LEGAL_SLUGS = ['terms', 'privacy'] as const;
+export type LegalSlug = (typeof LEGAL_SLUGS)[number];
+
+/**
+ * Operator-authored pages linked from the footer.
+ *
+ * Stored per install rather than shipped as fixed text: what a privacy policy
+ * has to say depends entirely on who is running the gallery, where they are,
+ * and what they actually collect. Shipping one would be wrong for almost every
+ * operator, and worse, would look authoritative.
+ *
+ * A page with empty content is treated as absent — the footer doesn't link it
+ * and the route 404s — so an install can never publish boilerplate its operator
+ * hasn't read and agreed to.
+ */
+export const legalPages = sqliteTable('legal_pages', {
+	slug: text('slug').$type<LegalSlug>().primaryKey(),
+	title: text('title').notNull(),
+	content: text('content').notNull().default(''),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.notNull()
+		.default(sql`(unixepoch() * 1000)`)
+});
+
+export type LegalPage = typeof legalPages.$inferSelect;
+
+// ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
 

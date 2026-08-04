@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { preloadData } from '$app/navigation';
+	import { page } from '$app/state';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import { stackHover } from '$lib/motion/stack-hover';
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
@@ -86,6 +87,11 @@
 	{/if}
 	<meta property="og:title" content={name} />
 	<meta property="og:type" content="website" />
+	<meta property="og:url" content={page.url.href} />
+	{#if data.collections[0]?.stack[0]}
+		<meta property="og:image" content="{page.url.origin}{data.collections[0].stack[0].socialSrc}" />
+		<meta name="twitter:card" content="summary_large_image" />
+	{/if}
 </svelte:head>
 
 {#if data.profile}

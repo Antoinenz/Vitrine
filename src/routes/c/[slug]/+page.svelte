@@ -140,8 +140,13 @@
 	{/if}
 	<meta property="og:title" content={c.title} />
 	<meta property="og:type" content="article" />
+	<meta property="og:url" content={page.url.href} />
 	{#if data.photos.length > 0}
-		<meta property="og:image" content="/i/{data.photos[0].id}/1280.jpeg" />
+		<!-- Absolute, and in a format every scraper decodes: relative URLs are
+		     rejected outright, and several crawlers still can't read AVIF or WebP.
+		     `page.url.origin` reflects ORIGIN in production. -->
+		<meta property="og:image" content="{page.url.origin}{data.photos[0].socialSrc}" />
+		<meta name="twitter:card" content="summary_large_image" />
 	{/if}
 	<!-- Unlisted collections are reachable by link but shouldn't be indexed;
 	     that's the difference the artist chose when picking the state. -->
