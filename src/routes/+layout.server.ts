@@ -17,10 +17,25 @@ export const load: LayoutServerLoad = async () => {
 		.orderBy(asc(users.createdAt))
 		.limit(1)
 		.get();
-	if (!owner) return { accentColor: null, artistName: '', legal: [] };
+	if (!owner) {
+		return {
+			accentColor: null,
+			artistName: '',
+			legal: [],
+			licence: null,
+			footerNote: '',
+			footerLinks: []
+		};
+	}
 
 	const profile = db
-		.select({ accentColor: profiles.accentColor, displayName: profiles.displayName })
+		.select({
+			accentColor: profiles.accentColor,
+			displayName: profiles.displayName,
+			licence: profiles.licence,
+			footerNote: profiles.footerNote,
+			footerLinks: profiles.footerLinks
+		})
 		.from(profiles)
 		.where(eq(profiles.userId, owner.id))
 		.get();
@@ -39,6 +54,9 @@ export const load: LayoutServerLoad = async () => {
 	return {
 		accentColor: profile?.accentColor ?? null,
 		artistName: profile?.displayName ?? '',
-		legal
+		legal,
+		licence: profile?.licence ?? null,
+		footerNote: profile?.footerNote ?? '',
+		footerLinks: profile?.footerLinks ?? []
 	};
 };

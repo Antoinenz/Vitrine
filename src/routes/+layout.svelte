@@ -28,7 +28,13 @@
 	</div>
 
 	{#if !page.url.pathname.startsWith('/admin')}
-		<Footer artist={data.artistName} legal={data.legal} />
+		<Footer
+			artist={data.artistName}
+			legal={data.legal}
+			licence={data.licence}
+			note={data.footerNote}
+			links={data.footerLinks}
+		/>
 	{/if}
 </div>
 

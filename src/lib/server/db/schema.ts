@@ -64,7 +64,17 @@ export const profiles = sqliteTable('profiles', {
 		.$type<{ label: string; url: string }[]>()
 		.notNull()
 		.default([]),
-	accentColor: text('accent_color').notNull().default('#1c1917')
+	accentColor: text('accent_color').notNull().default('#1c1917'),
+
+	/** Id from `$lib/licences`, shown in the footer. */
+	licence: text('licence').notNull().default('all-rights-reserved'),
+	/** A short line in the footer — a print enquiry address, a studio note. */
+	footerNote: text('footer_note').notNull().default(''),
+	/** `[{ label, url }]`, ordered, shown beside the legal links. */
+	footerLinks: text('footer_links', { mode: 'json' })
+		.$type<{ label: string; url: string }[]>()
+		.notNull()
+		.default([])
 });
 
 // ---------------------------------------------------------------------------

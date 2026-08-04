@@ -4,6 +4,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { profiles, photos, collections } from '$lib/server/db/schema';
 import { requireOwner } from '$lib/server/guards';
+import { LICENCES, DEFAULT_LICENCE } from '$lib/licences';
 
 const MAX_LINKS = 8;
 
@@ -19,7 +20,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			bio: '',
 			avatarPhotoId: null,
 			socialLinks: [],
-			accentColor: '#1c1917'
+			accentColor: '#1c1917',
+			licence: DEFAULT_LICENCE,
+			footerNote: '',
+			footerLinks: []
 		};
 
 	/**
@@ -35,7 +39,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		.orderBy(asc(photos.createdAt))
 		.all();
 
-	return { profile, candidates, email: user.email };
+	return { profile, candidates, email: user.email, licences: LICENCES };
 };
 
 export const actions: Actions = {
@@ -53,29 +57,49 @@ export const actions: Actions = {
 			return fail(400, { message: 'Accent colour must be a hex value like #1c1917.' });
 		}
 
-		const labels = data.getAll('linkLabel').map(String);
-		const urls = data.getAll('linkUrl').map(String);
+		/**
+		 * Only http(s) links are stored: a `javascript:` URL rendered into an href
+		 * on a public page would be a scripting vector.
+		 */
+		function collectLinks(labelField: string, urlField: string) {
+			const labels = data.getAll(labelField).map(String);
+			const urls = data.getAll(urlField).map(String);
+			const out: { label: string; url: string }[] = [];
 
-		const socialLinks: { label: string; url: string }[] = [];
-		for (let i = 0; i < Math.min(labels.length, urls.length, MAX_LINKS); i++) {
-			const label = labels[i].trim().slice(0, 40);
-			const url = urls[i].trim();
-			if (!label || !url) continue;
+			for (let i = 0; i < Math.min(labels.length, urls.length, MAX_LINKS); i++) {
+				const label = labels[i].trim().slice(0, 40);
+				const raw = urls[i].trim();
+				if (!label || !raw) continue;
 
-			// Only http(s) links are stored: a `javascript:` URL rendered into an
-			// href on the public page would be a scripting vector.
-			let parsed: URL;
-			try {
-				parsed = new URL(url);
-			} catch {
-				return fail(400, { message: `"${url}" isn't a valid link.` });
+				let parsed: URL;
+				try {
+					parsed = new URL(raw);
+				} catch {
+					throw new Error(`"${raw}" isn't a valid link.`);
+				}
+				if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+					throw new Error('Links must start with http:// or https://');
+				}
+				out.push({ label, url: parsed.toString() });
 			}
-			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-				return fail(400, { message: 'Links must start with http:// or https://' });
-			}
-
-			socialLinks.push({ label, url: parsed.toString() });
+			return out;
 		}
+
+		let socialLinks: { label: string; url: string }[];
+		let footerLinks: { label: string; url: string }[];
+		try {
+			socialLinks = collectLinks('linkLabel', 'linkUrl');
+			footerLinks = collectLinks('footerLinkLabel', 'footerLinkUrl');
+		} catch (err) {
+			return fail(400, { message: (err as Error).message });
+		}
+
+		// Only a known licence id is stored, so a crafted form can't put arbitrary
+		// text where a licence name is rendered.
+		const requestedLicence = String(data.get('licence') ?? '');
+		const licence = LICENCES.some((l) => l.id === requestedLicence)
+			? requestedLicence
+			: DEFAULT_LICENCE;
 
 		const rawAvatar = String(data.get('avatarPhotoId') ?? '');
 		// Verified to belong to this user, so a crafted form can't point the
@@ -96,7 +120,12 @@ export const actions: Actions = {
 				.slice(0, 2000),
 			avatarPhotoId,
 			socialLinks,
-			accentColor
+			accentColor,
+			licence,
+			footerNote: String(data.get('footerNote') ?? '')
+				.trim()
+				.slice(0, 300),
+			footerLinks
 		};
 
 		db.insert(profiles)

@@ -16,9 +16,23 @@
 	// the server sends a new profile. `$state` + `$effect` would do the same
 	// thing with an extra render pass and a chance of clobbering mid-edit.
 	let links = $derived([...data.profile.socialLinks, { label: '', url: '' }]);
+	let footerLinks = $derived([...data.profile.footerLinks, { label: '', url: '' }]);
+
+	const chosenLicence = $derived(
+		data.licences.find((l) => l.id === data.profile.licence) ?? data.licences[0]
+	);
 
 	function addLink() {
 		if (links.length < 8) links.push({ label: '', url: '' });
+	}
+
+	function addFooterLink() {
+		if (footerLinks.length < 8) footerLinks.push({ label: '', url: '' });
+	}
+
+	function removeFooterLink(index: number) {
+		footerLinks.splice(index, 1);
+		if (footerLinks.length === 0) footerLinks.push({ label: '', url: '' });
 	}
 
 	function removeLink(index: number) {
@@ -114,6 +128,59 @@
 
 		{#if links.length < 8}
 			<button type="button" class="add" onclick={addLink}>Add another link</button>
+		{/if}
+	</fieldset>
+
+	<fieldset>
+		<legend>Licence</legend>
+		<p class="hint">
+			Shown in the footer. Anything other than “All rights reserved” links to the licence’s own
+			terms, so visitors read the wording that actually applies.
+		</p>
+		<select name="licence" value={data.profile.licence}>
+			{#each data.licences as licence (licence.id)}
+				<option value={licence.id}>{licence.label}</option>
+			{/each}
+		</select>
+		<p class="hint">{chosenLicence.summary}</p>
+	</fieldset>
+
+	<fieldset>
+		<legend>Footer</legend>
+
+		<label for="footerNote">Note</label>
+		<input
+			id="footerNote"
+			name="footerNote"
+			value={data.profile.footerNote}
+			maxlength="300"
+			placeholder="Prints and licensing: hello@example.com"
+		/>
+
+		<p class="hint">Extra links, shown beside Terms and Privacy.</p>
+		{#each footerLinks as link, i (i)}
+			<div class="link-row">
+				<input
+					name="footerLinkLabel"
+					placeholder="Stockists"
+					bind:value={link.label}
+					maxlength="40"
+					aria-label="Footer link label"
+				/>
+				<input
+					name="footerLinkUrl"
+					type="url"
+					placeholder="https://example.com"
+					bind:value={link.url}
+					aria-label="Footer link URL"
+				/>
+				<button type="button" onclick={() => removeFooterLink(i)} aria-label="Remove footer link">
+					×
+				</button>
+			</div>
+		{/each}
+		{#if footerLinks.length < 8}
+			<button type="button" class="add" onclick={addFooterLink}>Add another link</button>
 		{/if}
 	</fieldset>
 
