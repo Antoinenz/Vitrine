@@ -203,3 +203,23 @@ test('zooming keeps the photograph on screen while the sharper file loads', asyn
 	await expect(img).not.toHaveAttribute('src', before ?? '', { timeout: 15_000 });
 	await expect(img).toBeVisible();
 });
+
+test('a bar with the collection name appears once the header scrolls away', async ({ page }) => {
+	await page.setViewportSize({ width: 900, height: 600 });
+	await page.goto('/c/sierra');
+
+	const bar = page.locator('.topbar');
+	// Present in the markup from the start, but not shown — it animates in, so it
+	// cannot simply be absent.
+	await expect(bar).not.toBeInViewport();
+
+	await page.locator('[data-photo]').last().scrollIntoViewIfNeeded();
+
+	await expect(bar).toBeInViewport();
+	await expect(bar).toContainText('Sierra');
+	await expect(bar.getByRole('link', { name: /back/i })).toBeVisible();
+
+	// And it goes away again on the way back up, rather than sticking.
+	await page.evaluate(() => window.scrollTo({ top: 0 }));
+	await expect(bar).not.toBeInViewport();
+});
