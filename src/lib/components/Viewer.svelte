@@ -2,6 +2,7 @@
 	import { tick } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { gsap, prefersReducedMotion, MOTION } from '$lib/motion/gsap';
+	import { detailPanel } from '$lib/motion/entrance';
 	import type { PhotoView } from '$lib/server/photos';
 
 	/**
@@ -470,11 +471,20 @@
 		{/if}
 	</div>
 
+	<!--
+		Two transitions, because there are two ways this can change shape.
+
+		With no caption — the common case, since most photographs carry EXIF and
+		few carry a caption — toggling details mounts and unmounts the whole
+		`.info` block, so that is what has to animate. With a caption, `.info` is
+		already on screen and only the `dl` comes and goes. Putting the transition
+		on just one of them would leave the other case popping.
+	-->
 	{#if photo.caption || showMetadata}
-		<div class="info">
+		<div class="info" transition:detailPanel>
 			{#if photo.caption}<p class="caption">{photo.caption}</p>{/if}
 			{#if showMetadata && metadataEntries.length > 0}
-				<dl>
+				<dl transition:detailPanel>
 					{#each metadataEntries as entry (entry.label)}
 						<div>
 							<dt>{entry.label}</dt>

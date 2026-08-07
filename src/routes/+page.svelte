@@ -5,6 +5,7 @@
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import { stackHover } from '$lib/motion/stack-hover';
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
+	import { entrance } from '$lib/motion/entrance';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -78,6 +79,22 @@
 		if (!hasPending(collectionId)) return;
 		void playIntoStack(node, collectionId);
 	}
+
+	/**
+	 * Settles the header in ahead of the stacks, so the page assembles in reading
+	 * order rather than appearing all at once beneath a header that was somehow
+	 * already there.
+	 *
+	 * Skipped entirely when returning from a collection: a photograph is already
+	 * flying back into its stack, and a second animation starting at the same
+	 * moment would compete with the thing the eye is actually following. The
+	 * header was on screen when the visitor left, so re-introducing it would be
+	 * wrong anyway.
+	 */
+	function headerEntrance(node: HTMLElement) {
+		if (data.collections.some((c) => hasPending(c.id))) return;
+		return entrance({ stagger: '.avatar, .intro-text > *' })(node);
+	}
 </script>
 
 <svelte:head>
@@ -95,7 +112,7 @@
 </svelte:head>
 
 {#if data.profile}
-	<header class="intro">
+	<header class="intro" {@attach headerEntrance}>
 		{#if data.profile.avatarPhotoId}
 			<img
 				class="avatar"

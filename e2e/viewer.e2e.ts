@@ -122,3 +122,28 @@ test('a modified click still opens a real tab', async ({ page, context }) => {
 	await expect(opened).toHaveURL(/\/c\/sierra\/[a-f0-9-]{36}$/);
 	await opened.close();
 });
+
+test('the details panel opens and closes', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await page.locator('[data-photo]').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	// The button only exists when the photograph carries metadata, which is why
+	// the seed embeds real EXIF — without it this whole path is invisible.
+	await page.getByRole('button', { name: 'Details' }).click();
+	await expect(page.locator(`${VIEWER} dl`)).toBeVisible();
+	await expect(page.locator(`${VIEWER} dl`)).toContainText('Test Camera One');
+
+	/**
+	 * The collection allows four metadata fields but only the camera has a value,
+	 * so exactly one row may render. This is the assertion that would catch the
+	 * panel listing empty labels for metadata the photograph doesn't carry.
+	 */
+	await expect(page.locator(`${VIEWER} dl > div`)).toHaveCount(1);
+
+	await page.getByRole('button', { name: 'Details' }).click();
+
+	// The panel animates out, so it lingers in the DOM through its outro. The
+	// assertion is that it goes, not that it went in the same frame.
+	await expect(page.locator(`${VIEWER} dl`)).toHaveCount(0);
+});

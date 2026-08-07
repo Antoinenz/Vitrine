@@ -5,6 +5,7 @@
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
+	import { entrance } from '$lib/motion/entrance';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -134,6 +135,17 @@
 	 * rather than animating, which is the right behaviour anyway: they were added,
 	 * not navigated to.
 	 */
+	/**
+	 * Built once, deliberately.
+	 *
+	 * Svelte destroys and recreates an attachment whenever its expression
+	 * changes, and `entrance({ … })` returns a fresh closure on every render — so
+	 * inlining it in the markup would replay the header animation on every state
+	 * change, including the `invalidateAll()` that fires when an upload finishes.
+	 * A stable reference runs it once, on mount.
+	 */
+	const headEntrance = entrance({ stagger: '.head > *' });
+
 	let revealedFor: string | null = null;
 
 	$effect(() => {
@@ -179,7 +191,18 @@
 
 <a class="back" href={resolve('/')}>← {data.artist.name || 'Back'}</a>
 
-<header class="head">
+<!--
+	Unlike the artist page's header, this one animates however the visitor
+	arrived. There the header was already on screen before they left, so
+	re-introducing it on the way back would be a lie; here the title is new
+	content every time.
+
+	It runs during the stack→grid flight rather than waiting for it. The two
+	don't compete: the photographs are moving through the grid below while this
+	settles above them, and holding the title back until the flight finished
+	would leave the page headless for the most conspicuous half-second it has.
+-->
+<header class="head" {@attach headEntrance}>
 	<h1>{c.title}</h1>
 	{#if c.description}
 		<p class="description">{c.description}</p>

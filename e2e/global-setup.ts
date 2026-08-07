@@ -24,9 +24,27 @@ async function photo(width: number, height: number): Promise<Buffer> {
 			raw[i + 2] = 130;
 		}
 	}
-	return sharp(raw, { raw: { width, height, channels: 3 } })
-		.jpeg()
-		.toBuffer();
+	return (
+		sharp(raw, { raw: { width, height, channels: 3 } })
+			/**
+			 * Real EXIF, so the viewer's details panel has something to show.
+			 *
+			 * Without this every seeded photograph carries `{}`, the Details button
+			 * never renders, and the entire metadata path — extraction, projection
+			 * through the allow-list, and the panel itself — is invisible to the
+			 * suite.
+			 *
+			 * Only the IFD0 strings, because that is all that survives: sharp's
+			 * `withExif` did not carry the ExifIFD numerics (FNumber, ExposureTime,
+			 * ISO) through to something exifr could read back. One camera name is
+			 * enough to open the panel, and the allow-list below deliberately
+			 * permits four fields against this one populated value — so the panel is
+			 * also proved not to render empty rows for metadata that isn't there.
+			 */
+			.withExif({ IFD0: { Make: 'Test', Model: 'Camera One' } })
+			.jpeg()
+			.toBuffer()
+	);
 }
 
 const SIZES: [number, number][] = [
@@ -100,13 +118,30 @@ export default async function globalSetup() {
 		if (!res.ok()) throw new Error(`Upload ${i} failed: ${res.status()} ${await res.text()}`);
 	}
 
+	/**
+	 * Built by hand rather than with the `form` option, which takes a flat object
+	 * and so cannot express a repeated field. `metadataFields` is a checkbox
+	 * group: it arrives as one key appearing several times.
+	 */
+	const settings = new URLSearchParams({
+		title: 'Sierra',
+		slug: 'sierra',
+		description: 'High country, late light.',
+		visibility: 'public'
+	});
+	/**
+	 * Publishes the EXIF the photographs carry. The allow-list defaults to empty,
+	 * so without this the details panel stays shut even though the metadata was
+	 * read and stored correctly — the button that opens it never renders, and the
+	 * whole metadata path goes untested.
+	 */
+	for (const field of ['camera', 'aperture', 'shutterSpeed', 'iso']) {
+		settings.append('metadataFields', field);
+	}
+
 	await ctx.post(`/admin/collections/${collectionId}?/settings`, {
-		form: {
-			title: 'Sierra',
-			slug: 'sierra',
-			description: 'High country, late light.',
-			visibility: 'public'
-		},
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		data: settings.toString(),
 		maxRedirects: 0
 	});
 
