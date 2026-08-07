@@ -375,7 +375,14 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
 		gap: 2.5rem 2rem;
-		align-items: start;
+		/*
+		 * Photographs in a row sit centred against each other rather than hanging
+		 * from the top. Every cell keeps its own aspect ratio, so a landscape frame
+		 * beside a portrait one left a ragged top edge and a large void beneath the
+		 * short one; centring shares that space and the row reads as one line of
+		 * prints.
+		 */
+		align-items: center;
 	}
 
 	figure {
