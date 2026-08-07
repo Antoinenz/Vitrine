@@ -10,6 +10,6 @@ export const actions: Actions = {
 	default: async (event) => {
 		if (event.locals.session) invalidateSession(event.locals.session.id);
 		deleteSessionCookie(event);
-		redirect(303, '/admin/login');
+		redirect(303, '/');
 	}
 };

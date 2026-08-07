@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
-import { createDb, runMigrations } from './index';
+import { createDb, runMigrations, MIGRATIONS_DIR } from './index';
 import { openDatabase } from './sqlite-shim';
 import { users, profiles, collections, photos, derivatives } from './schema';
 
@@ -80,6 +80,53 @@ describe('migrations', () => {
 		const photo = db.select().from(photos).where(eq(photos.id, 'p1')).get();
 		expect(photo?.exif).toEqual({ camera: 'Fujifilm X-T5', aperture: 'f/2.8', iso: 160 });
 		expect(photo?.status).toBe('pending');
+	});
+
+	/**
+	 * `dated_at` drives the default order of the artist page. Adding it without a
+	 * backfill would leave every existing collection null, and since the ordering
+	 * falls back to `created_at` only through `coalesce`, an install that had been
+	 * running for a year would have had its gallery silently rearranged by an
+	 * upgrade. So the migration carries a hand-written `UPDATE`, and this asserts
+	 * it against a database that genuinely predates the column.
+	 */
+	it('backfills dated_at from created_at for collections that predate the column', () => {
+		// Only the migrations that existed before 0003, so the row is inserted
+		// into the old shape rather than the current one.
+		const older = join(dir, 'older');
+		mkdirSync(older);
+		const before = readdirSync(MIGRATIONS_DIR)
+			.filter((f) => f.endsWith('.sql') && f < '0003')
+			.sort();
+		for (const file of before) {
+			copyFileSync(join(MIGRATIONS_DIR, file), join(older, file));
+		}
+
+		const path = join(dir, 'test.db');
+		const client = openDatabase(path);
+		runMigrations(client, older);
+
+		client
+			.prepare(
+				`INSERT INTO users (id, email, password_hash, created_at)
+				 VALUES ('u1', 'a@b.c', 'x', 1000)`
+			)
+			.run();
+		client
+			.prepare(
+				`INSERT INTO collections (id, owner_id, slug, title, sort_key, created_at)
+				 VALUES ('c1', 'u1', 's', 'T', 'a0', 1700000000000)`
+			)
+			.run();
+
+		// Now the real thing, 0003 included.
+		expect(runMigrations(client)).toContain('0003_collection_date_and_order.sql');
+
+		const row = client.prepare('SELECT dated_at FROM collections WHERE id = ?').get('c1') as {
+			dated_at: number | null;
+		};
+		expect(row.dated_at).toBe(1700000000000);
+		client.close();
 	});
 
 	it('is idempotent — a second run applies nothing', () => {

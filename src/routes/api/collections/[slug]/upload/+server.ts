@@ -4,7 +4,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
 import { photos, collections } from '$lib/server/db/schema';
-import { requireOwner, requireOwnedCollection } from '$lib/server/guards';
+import { requireOwnerApi, requireOwnedCollectionBySlug } from '$lib/server/guards';
 import { storeOriginal, UploadTooLargeError } from '$lib/server/storage';
 import { keyBetween } from '$lib/server/sort-key';
 import { schedule } from '$lib/server/images/worker';
@@ -18,6 +18,10 @@ import { MAX_UPLOAD_BYTES } from '$lib/server/config';
  * per file gives the browser real per-file progress plus the ability to retry a
  * single failure out of a batch of sixty. The filename rides in the query
  * string since there's no form field to carry it.
+ *
+ * Addressed by slug, like its `download` sibling, because the caller is now the
+ * public collection page — where the slug is in the URL and the id appears
+ * nowhere.
  */
 
 const ACCEPTED = new Set([
@@ -31,8 +35,8 @@ const ACCEPTED = new Set([
 ]);
 
 export const POST: RequestHandler = async (event) => {
-	const user = requireOwner(event.locals);
-	const collection = requireOwnedCollection(user.id, event.params.id);
+	const user = requireOwnerApi(event.locals);
+	const collection = requireOwnedCollectionBySlug(user.id, event.params.slug);
 
 	const filename = event.url.searchParams.get('name')?.trim();
 	if (!filename) error(400, 'Missing file name');

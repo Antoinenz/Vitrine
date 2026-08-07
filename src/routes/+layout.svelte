@@ -2,6 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import Footer from '$lib/components/Footer.svelte';
+	import UploadOverlay from '$lib/components/UploadOverlay.svelte';
 	import { page } from '$app/state';
 	import type { LayoutData } from './$types';
 
@@ -9,7 +10,19 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<!--
+		The artist's portrait, cropped square, when they've chosen one — a gallery's
+		icon should be the photographer rather than a framework mark. The bundled
+		SVG stays as the fallback for a fresh install with no portrait set.
+
+		`/favicon.png` is a stable path rather than a rendition URL, so it carries a
+		short revalidating cache and needs no version query string.
+	-->
+	{#if data.hasPortrait}
+		<link rel="icon" type="image/png" href="/favicon.png" />
+	{:else}
+		<link rel="icon" href={favicon} />
+	{/if}
 </svelte:head>
 
 <!--
@@ -19,16 +32,35 @@
 	so it can't inject anything into the style attribute.
 -->
 <!--
-	The footer is suppressed in the admin area, which has its own chrome and is
-	not part of the public site.
+	Still suppressed under `/admin`, which is now only the photo workbench —
+	the last piece of the old panel, and the last thing left to bring inline.
 -->
 <div class="root" style:--color-accent={data.accentColor ?? undefined}>
 	<div class="page">
 		{@render children()}
 	</div>
 
+	<!--
+		Owner only, so a visitor never gets window-wide drag listeners — and so
+		dragging an image out of a gallery keeps behaving normally for them.
+
+		Mounted here rather than per page because the queue outlives any one page:
+		drop sixty files, navigate away, and the transfers and their progress panel
+		carry on.
+	-->
+	{#if data.isOwner}
+		<UploadOverlay />
+	{/if}
+
 	{#if !page.url.pathname.startsWith('/admin')}
-		<Footer artist={data.artistName} legal={data.legal} />
+		<Footer
+			artist={data.artistName}
+			legal={data.legal}
+			licence={data.licence}
+			note={data.footerNote}
+			links={data.footerLinks}
+			isOwner={data.isOwner}
+		/>
 	{/if}
 </div>
 

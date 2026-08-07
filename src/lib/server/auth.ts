@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
 import { db } from './db';
 import { sessions, users, type User } from './db/schema';
-import { SESSION_TTL_MS, IS_PRODUCTION } from './config';
+import { SESSION_TTL_MS } from './config';
 
 /**
  * Session handling follows the reference implementation published by Lucia,
@@ -15,6 +15,24 @@ import { SESSION_TTL_MS, IS_PRODUCTION } from './config';
  */
 
 export const SESSION_COOKIE = 'vitrine_session';
+
+/**
+ * Whether to mark cookies `Secure`, decided by the scheme of the request.
+ *
+ * Not by `NODE_ENV`. A browser silently *discards* a `Secure` cookie sent over
+ * plain HTTP, so a production build served over http — on a LAN, a VPN, a
+ * Tailscale address, or behind a proxy that terminates TLS elsewhere — would
+ * appear to sign in successfully and then bounce straight back to the login
+ * form with no error at all, because nothing errored. Those are legitimate
+ * deployments, not misconfigurations.
+ *
+ * Following the request scheme keeps the flag on wherever it can do its job and
+ * off where it would only break sign-in. Behind a TLS-terminating proxy, set
+ * `PROTOCOL_HEADER=x-forwarded-proto` so this sees the original scheme.
+ */
+export function isSecureRequest(event: RequestEvent): boolean {
+	return event.url.protocol === 'https:';
+}
 
 /** Renew a session once it's past halfway, so active users are never logged out. */
 const RENEW_THRESHOLD_MS = SESSION_TTL_MS / 2;
@@ -139,7 +157,7 @@ export function setSessionCookie(event: RequestEvent, token: string, expiresAt: 
 		// link into the admin area keeps you logged in, while cross-site POSTs
 		// don't carry it.
 		sameSite: 'lax',
-		secure: IS_PRODUCTION,
+		secure: isSecureRequest(event),
 		expires: expiresAt
 	});
 }

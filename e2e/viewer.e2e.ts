@@ -111,6 +111,17 @@ test('closing returns the viewed photo to the viewport', async ({ page }) => {
 test('a modified click still opens a real tab', async ({ page, context }) => {
 	await page.goto('/c/sierra');
 
+	/**
+	 * Wait for the arrival animation to finish before clicking.
+	 *
+	 * `revealGrid` tweens the photographs from `opacity: 0` and a 12px offset, and
+	 * Playwright's actionability checks do not consider opacity — so the click was
+	 * being delivered to a target that was still invisible and still moving. That
+	 * is what made this the flakiest test in the suite; it failed roughly one run
+	 * in three regardless of machine load.
+	 */
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+
 	const popup = context.waitForEvent('page');
 	await page
 		.locator('[data-photo] a')
@@ -118,7 +129,242 @@ test('a modified click still opens a real tab', async ({ page, context }) => {
 		.click({ modifiers: ['ControlOrMeta'] });
 	const opened = await popup;
 
-	// The overlay must not hijack ctrl/cmd-click.
-	await expect(opened).toHaveURL(/\/c\/sierra\/[a-f0-9-]{36}$/);
+	/**
+	 * The overlay must not hijack ctrl/cmd-click.
+	 *
+	 * `waitForURL` with `commit` rather than `toHaveURL`, because ctrl-click opens
+	 * the tab in the *background* and browsers deprioritise loading those — the
+	 * page can sit on `about:blank` for a long time while the foreground tab
+	 * holds the CPU. `toHaveURL` polls for a fully settled load and was timing out
+	 * roughly one run in three, which is what made this the suite's flakiest test.
+	 * The claim being made is that the browser genuinely navigated a new tab to
+	 * the photograph's own URL, and a committed navigation is exactly that.
+	 */
+	await opened.waitForURL(/\/c\/sierra\/[a-f0-9-]{36}$/, { waitUntil: 'commit' });
 	await opened.close();
+});
+
+test('the details panel opens and closes', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await page.locator('[data-photo]').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	// The button only exists when the photograph carries metadata, which is why
+	// the seed embeds real EXIF — without it this whole path is invisible.
+	await page.getByRole('button', { name: 'Details' }).click();
+	await expect(page.locator(`${VIEWER} dl`)).toBeVisible();
+	await expect(page.locator(`${VIEWER} dl`)).toContainText('Test Camera One');
+
+	/**
+	 * The collection allows four metadata fields but only the camera has a value,
+	 * so exactly one row may render. This is the assertion that would catch the
+	 * panel listing empty labels for metadata the photograph doesn't carry.
+	 */
+	await expect(page.locator(`${VIEWER} dl > div`)).toHaveCount(1);
+
+	await page.getByRole('button', { name: 'Details' }).click();
+
+	// The panel animates out, so it lingers in the DOM through its outro. The
+	// assertion is that it goes, not that it went in the same frame.
+	await expect(page.locator(`${VIEWER} dl`)).toHaveCount(0);
+});
+
+test('zooming keeps the photograph on screen while the sharper file loads', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+	await page.locator('[data-photo] a').first().click();
+
+	const img = page.locator(`${VIEWER} img`).first();
+	await expect(img).toBeVisible();
+	const before = await img.getAttribute('src');
+
+	/**
+	 * Slow every rendition request from here on. The zoom source is the only
+	 * image the page still wants, and without this delay it arrives from cache
+	 * fast enough that the regression would hide behind a passing test.
+	 */
+	await page.route('**/i/**', async (route) => {
+		await new Promise((r) => setTimeout(r, 1500));
+		await route.continue();
+	});
+
+	await img.dblclick();
+
+	/**
+	 * The bug this pins: the element was bound straight to the zoom source, so it
+	 * was hidden behind a spinner until those bytes landed — the photograph
+	 * disappeared at the exact moment someone leaned in to look at it. It must
+	 * stay on screen, showing the rendition it already had.
+	 */
+	await expect(img).toBeVisible();
+	expect(await img.getAttribute('src')).toBe(before);
+
+	// And it does eventually sharpen, rather than being stuck on the preview.
+	await expect(img).not.toHaveAttribute('src', before ?? '', { timeout: 15_000 });
+	await expect(img).toBeVisible();
+});
+
+test('a bar with the collection name appears once the header scrolls away', async ({ page }) => {
+	await page.setViewportSize({ width: 900, height: 600 });
+	await page.goto('/c/sierra');
+
+	const bar = page.locator('.topbar');
+	// Present in the markup from the start, but not shown — it animates in, so it
+	// cannot simply be absent.
+	await expect(bar).not.toBeInViewport();
+
+	await page.locator('[data-photo]').last().scrollIntoViewIfNeeded();
+
+	await expect(bar).toBeInViewport();
+	await expect(bar).toContainText('Sierra');
+	await expect(bar.getByRole('link', { name: /back/i })).toBeVisible();
+
+	// And it goes away again on the way back up, rather than sticking.
+	await page.evaluate(() => window.scrollTo({ top: 0 }));
+	await expect(bar).not.toBeInViewport();
+});
+
+test('the filmstrip keeps the selection centred and respects each frame shape', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 1000, height: 700 });
+	await page.goto('/c/sierra');
+	await page.locator('[data-photo] a').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	const strip = page.locator('.filmstrip');
+	const thumbs = page.locator('.filmstrip button');
+
+	/**
+	 * The seed has landscape, portrait and square photographs, so if the strip
+	 * still forced one box shape every chip would measure the same. Distinct
+	 * widths are the evidence that the frame shape survives.
+	 */
+	const widths = await thumbs.evaluateAll((els) =>
+		els.map((el) => Math.round(el.getBoundingClientRect().width))
+	);
+	expect(new Set(widths).size).toBeGreaterThan(1);
+
+	/** The selected thumbnail sits at the middle of the strip, within a pixel or two. */
+	async function offsetFromCentre() {
+		return await page.evaluate(() => {
+			const strip = document.querySelector('.filmstrip')!;
+			const active = strip.querySelector('[aria-current="true"]')!;
+			const s = strip.getBoundingClientRect();
+			const a = active.getBoundingClientRect();
+			return Math.abs(a.left + a.width / 2 - (s.left + s.width / 2));
+		});
+	}
+
+	await expect.poll(offsetFromCentre).toBeLessThan(4);
+
+	// Stepping moves the strip, not the marker.
+	const before = await strip.evaluate((el) => el.scrollLeft);
+	await page.keyboard.press('ArrowRight');
+	await expect(page.locator(VIEWER)).toContainText('2 / 6');
+	await expect.poll(offsetFromCentre).toBeLessThan(4);
+	expect(await strip.evaluate((el) => el.scrollLeft)).not.toBe(before);
+});
+
+test('a progress dial reports the zoom rendition arriving', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+	await page.locator('[data-photo] a').first().click();
+
+	const img = page.locator(`${VIEWER} img`).first();
+	await expect(img).toBeVisible();
+
+	// Slowed, or the rendition arrives before the dial can be observed at all.
+	await page.route('**/i/**', async (route) => {
+		await new Promise((r) => setTimeout(r, 1200));
+		await route.continue();
+	});
+
+	await img.dblclick();
+
+	const dial = page.locator('.zoom-progress');
+	await expect(dial).toBeVisible();
+	// Real bytes, not a fake easing curve — so it must report a genuine position.
+	await expect(dial).toHaveAttribute('aria-valuenow', /\d+/);
+
+	// And it goes when the rendition lands, rather than lingering at 99%.
+	await expect(dial).toHaveCount(0, { timeout: 20_000 });
+	await expect(img).toBeVisible();
+});
+
+test('clicking the dark surround closes, but not near a control', async ({ page }) => {
+	await page.setViewportSize({ width: 1200, height: 800 });
+	await page.goto('/c/sierra');
+	await page.locator('[data-photo] a').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	/**
+	 * A click just below the Close button. The controls sit *on* the backdrop, so
+	 * without a safe margin the space around them becomes a trap where a
+	 * slightly-off press does the opposite of what was intended.
+	 */
+	const close = page.getByRole('button', { name: /close/i }).first();
+	const box = (await close.boundingBox())!;
+	await page.mouse.click(box.x + box.width / 2, box.y + box.height + 12);
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	/**
+	 * Far from everything: the stage's own top-left corner. The arrows are
+	 * vertically centred and the header's controls are at the far right, so this
+	 * corner is several hundred pixels from the nearest of either.
+	 *
+	 * A first attempt clicked the middle of the left margin and did *not* close —
+	 * correctly, because that is exactly where the previous-photo arrow sits.
+	 */
+	await page.locator('.stage').click({ position: { x: 8, y: 8 } });
+	await expect(page.locator(VIEWER)).toHaveCount(0);
+	await expect(page).toHaveURL(/\/c\/sierra$/);
+});
+
+test('opening a photograph brings it in from its place in the grid', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+
+	/**
+	 * Watch for the transform before clicking, rather than sampling after.
+	 *
+	 * The flight is under 400ms, so polling afterwards races it — the same reason
+	 * the ghost-overlay test installs an observer up front. Identity matrices are
+	 * ignored: Svelte writes `translate3d(0,0,0) scale(1)` for zoom and pan, so
+	 * "has a transform" would be true even with no animation at all.
+	 */
+	await page.evaluate(() => {
+		const w = window as Window & { __flew?: boolean };
+		w.__flew = false;
+		const check = () => {
+			const img = document.querySelector('[role="dialog"] img');
+			if (!img) return;
+			const m = new DOMMatrix(getComputedStyle(img).transform);
+			if (Math.abs(m.a - 1) > 0.01 || Math.abs(m.e) > 1 || Math.abs(m.f) > 1) w.__flew = true;
+		};
+		new MutationObserver(check).observe(document.body, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			attributeFilter: ['style']
+		});
+	});
+
+	await page.locator('[data-photo] a').nth(3).click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	await expect
+		.poll(() => page.evaluate(() => (window as Window & { __flew?: boolean }).__flew))
+		.toBe(true);
+
+	// And it settles: GSAP hands the transform back so zoom and pan still work.
+	const img = page.locator(`${VIEWER} img`).first();
+	await expect
+		.poll(async () =>
+			img.evaluate((el) => {
+				const m = new DOMMatrix(getComputedStyle(el).transform);
+				return Math.abs(m.a - 1) < 0.01 && Math.abs(m.e) < 1 && Math.abs(m.f) < 1;
+			})
+		)
+		.toBe(true);
 });

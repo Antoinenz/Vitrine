@@ -43,6 +43,16 @@ export const load: PageServerLoad = async ({ params, locals, cookies, url }) => 
 		artist: {
 			name: profile?.displayName ?? '',
 			accentColor: profile?.accentColor ?? '#1c1917'
-		}
+		},
+		/**
+		 * A boolean only, for now: enough to show the artist the way through to the
+		 * photo workbench, which is the last part of the old panel still standing.
+		 *
+		 * The full owner payload — dated date, metadata fields, whether a share
+		 * password is set, pending and failed counts — arrives with the collection
+		 * editor. It is deliberately not added speculatively, since every field
+		 * here is one a visitor must never receive.
+		 */
+		isOwner: locals.user?.id === owner.id
 	};
 };

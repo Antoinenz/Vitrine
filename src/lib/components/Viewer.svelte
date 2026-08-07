@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { gsap, prefersReducedMotion, MOTION } from '$lib/motion/gsap';
+	import { detailPanel } from '$lib/motion/entrance';
+	import { playPhotoOpen } from '$lib/motion/photo-open';
 	import type { PhotoView } from '$lib/server/photos';
 
 	/**
@@ -49,8 +51,12 @@
 	 * The full-resolution rendition is only requested once someone actually zooms
 	 * in. A casual viewer scrolling through a collection never downloads a 4K
 	 * file they can't distinguish from the one already on screen.
+	 *
+	 * Both URLs come from the server, which builds them from the renditions that
+	 * actually exist. Assembling one here from a width and a guessed extension is
+	 * how the viewer ended up requesting a file that had never been generated.
 	 */
-	const fullSrc = $derived(zoomed ? `/i/${photo.id}/${photo.maxWidth}.webp` : photo.src);
+	const fullSrc = $derived(zoomed ? photo.zoomSrc : photo.src);
 
 	function resetZoom() {
 		zoom = 1;
@@ -122,7 +128,166 @@
 	// --- navigation ---------------------------------------------------------
 
 	let stageEl = $state<HTMLElement>();
-	let imageEl = $state<HTMLElement>();
+	let imageEl = $state<HTMLImageElement>();
+
+	// --- load state ---------------------------------------------------------
+
+	/**
+	 * Whether the photograph currently on screen has decoded, failed, or is
+	 * still arriving.
+	 *
+	 * Keyed by the URL rather than the index, so switching between the preview
+	 * and the zoomed rendition is also covered — and so a cached image that
+	 * completes before the handler attaches doesn't leave a spinner running
+	 * forever.
+	 */
+	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
+
+	/**
+	 * The source actually on screen, which is not always the one wanted.
+	 *
+	 * Zooming swaps `fullSrc` to a much larger rendition of the *same*
+	 * photograph. Binding the element straight to `fullSrc` meant the image was
+	 * hidden and a spinner shown while those bytes arrived — so the photograph
+	 * vanished at the exact moment the visitor leaned in to look at it, then
+	 * reappeared. Now the picture already on screen stays, scaled and soft, and
+	 * is replaced only once the sharper file is decoded and can be swapped in the
+	 * same frame.
+	 *
+	 * Seeded with the real source rather than left empty, and `untrack` says so
+	 * deliberately: effects don't run on the server, so an empty initial value
+	 * would server-render `<img src="">` — and this component *is* server-rendered
+	 * for a cold-opened `/c/[slug]/[photoId]` link, which is the one case where
+	 * the markup has to carry the photograph on its own.
+	 */
+	let displaySrc = $state(untrack(() => photo.src));
+
+	/**
+	 * Which photograph `displaySrc` belongs to. A plain `let`, not `$state`: the
+	 * effect below both reads and writes it, and reactive state there would loop.
+	 */
+	let shownId = untrack(() => photo.id);
+
+	/**
+	 * How much of the zoom rendition has arrived, 0–1, or null when nothing is
+	 * being fetched. Drives the dial over the photograph.
+	 */
+	let zoomProgress = $state<number | null>(null);
+
+	/** The blob URL currently on screen, if any, so it can be revoked. */
+	let zoomObjectUrl: string | null = null;
+
+	function releaseZoomUrl() {
+		if (zoomObjectUrl) {
+			URL.revokeObjectURL(zoomObjectUrl);
+			zoomObjectUrl = null;
+		}
+	}
+
+	$effect(() => releaseZoomUrl);
+
+	$effect(() => {
+		const wanted = fullSrc;
+		const wantedId = photo.id;
+
+		/**
+		 * A different photograph. There is nothing valid on screen to keep, so the
+		 * spinner is honest here — swap immediately and wait.
+		 */
+		if (wantedId !== shownId) {
+			shownId = wantedId;
+			releaseZoomUrl();
+			zoomProgress = null;
+			displaySrc = wanted;
+			loadState = 'loading';
+			// A cached image can already be complete by the time this runs, in
+			// which case no load event will ever fire.
+			if (imageEl?.complete && imageEl.currentSrc.endsWith(wanted)) {
+				loadState = imageEl.naturalWidth > 0 ? 'ready' : 'error';
+			}
+			return;
+		}
+
+		// Same photograph, finer rendition: fetch it out of sight and only then
+		// put it on screen.
+		if (wanted === untrack(() => displaySrc)) return;
+
+		/**
+		 * Zooming back out needs none of this. The preview is the rendition the
+		 * grid already loaded, so it is in cache and can be shown at once —
+		 * streaming it would put a progress dial over an image that is already
+		 * there.
+		 */
+		if (!zoomed) {
+			zoomProgress = null;
+			displaySrc = wanted;
+			releaseZoomUrl();
+			return;
+		}
+
+		let cancelled = false;
+
+		/**
+		 * Fetched rather than assigned to an Image, so the progress is real.
+		 *
+		 * `<img>` reports only "done": there is no way to ask it how far along it
+		 * is. Streaming the response gives actual byte counts, which is the whole
+		 * point of showing a dial — a fake one that eases to 90% and waits is
+		 * worse than none, because it stops meaning anything.
+		 */
+		zoomProgress = 0;
+		void (async () => {
+			try {
+				const response = await fetch(wanted);
+				if (!response.ok || !response.body) throw new Error(String(response.status));
+
+				const total = Number(response.headers.get('content-length') ?? 0);
+				// `BlobPart[]`, not `Uint8Array[]`: a Uint8Array may be backed by a
+				// SharedArrayBuffer, which Blob does not accept.
+				const chunks: BlobPart[] = [];
+				let received = 0;
+
+				const reader = response.body.getReader();
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					if (cancelled) return reader.cancel();
+					chunks.push(value as BlobPart);
+					received += value.length;
+					// Without a content-length there is nothing honest to show, so the
+					// dial stays where it is rather than inventing a position.
+					if (total > 0) zoomProgress = Math.min(1, received / total);
+				}
+				if (cancelled) return;
+
+				/**
+				 * Handed to the browser as a blob so the decode is instant and the swap
+				 * happens in one frame. Pointing `src` at the URL again would be a
+				 * second request — served from cache, but still a gap.
+				 */
+				const url = URL.createObjectURL(new Blob(chunks));
+				const image = new Image();
+				image.src = url;
+				await image.decode();
+				if (cancelled) {
+					URL.revokeObjectURL(url);
+					return;
+				}
+				zoomProgress = 1;
+				if (zoomObjectUrl) URL.revokeObjectURL(zoomObjectUrl);
+				zoomObjectUrl = url;
+				displaySrc = url;
+			} catch {
+				// A zoom rendition that fails to load is not worth surfacing: the
+				// visitor keeps the photograph they already had.
+				if (!cancelled) zoomProgress = null;
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	/** Which way the last step went, so the arrival slides in from the far side. */
 	let slideFrom = $state(0);
@@ -164,10 +329,84 @@
 			gsap.fromTo(
 				imageEl,
 				{ scale: 0.94, opacity: 0 },
-				{ scale: 1, opacity: 1, duration: 0.36, ease: 'back.out(1.2)' }
+				{ scale: 1, opacity: 1, duration: 0.34, ease: 'power3.out' }
 			);
 		}
 	});
+
+	/**
+	 * How far a click must be from any control before it counts as "the dark
+	 * area". Roughly a fingertip, so a near-miss on Close or an arrow reads as a
+	 * missed press rather than an instruction to dismiss.
+	 */
+	const CONTROL_SAFE_PX = 44;
+
+	/**
+	 * Dismisses on a click into the surround.
+	 *
+	 * Two guards, for two different mistakes. The photograph itself never
+	 * dismisses, or zooming in and clicking to look closer would throw you out.
+	 * And a click landing near a control doesn't either: the buttons sit *on* the
+	 * dark area, so without a margin the space immediately around Close and the
+	 * arrows becomes a trap where a slightly-off press does the opposite of what
+	 * was intended.
+	 */
+	function onBackdropClick(event: MouseEvent) {
+		if (zoomed) return;
+
+		/**
+		 * A click counts as "the surround" if it landed on the backdrop element —
+		 * or on the image element but *outside the picture itself*.
+		 *
+		 * That second case is not a nicety. The `<img>` box fills the stage while
+		 * `object-fit: contain` letterboxes the photograph inside it, so the bands
+		 * of dark either side of a portrait frame are still the image element.
+		 * Testing the element alone meant most of what looks like empty space did
+		 * nothing at all.
+		 */
+		const onBackdrop = event.target === event.currentTarget;
+		const onLetterbox = event.target === imageEl && !withinPicture(event.clientX, event.clientY);
+		if (!onBackdrop && !onLetterbox) return;
+
+		if (nearAControl(event.clientX, event.clientY)) return;
+		animateClose();
+	}
+
+	/**
+	 * Whether a point is over the photograph as drawn, rather than merely over the
+	 * element that holds it.
+	 *
+	 * Recreates what `object-fit: contain` does: scale to fit, centre the result,
+	 * and leave the rest empty.
+	 */
+	function withinPicture(x: number, y: number): boolean {
+		if (!imageEl?.naturalWidth || !imageEl.naturalHeight) return true;
+
+		const box = imageEl.getBoundingClientRect();
+		const scale = Math.min(box.width / imageEl.naturalWidth, box.height / imageEl.naturalHeight);
+		const width = imageEl.naturalWidth * scale;
+		const height = imageEl.naturalHeight * scale;
+		const left = box.left + (box.width - width) / 2;
+		const top = box.top + (box.height - height) / 2;
+
+		return x >= left && x <= left + width && y >= top && y <= top + height;
+	}
+
+	function nearAControl(x: number, y: number): boolean {
+		const controls = containerEl?.querySelectorAll<HTMLElement>('button, a');
+		if (!controls) return false;
+
+		for (const control of controls) {
+			const rect = control.getBoundingClientRect();
+			if (rect.width === 0 || rect.height === 0) continue;
+
+			// Distance from the point to the rectangle, zero when inside it.
+			const dx = Math.max(rect.left - x, 0, x - rect.right);
+			const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+			if (Math.hypot(dx, dy) < CONTROL_SAFE_PX) return true;
+		}
+		return false;
+	}
 
 	/**
 	 * Plays the close animation, then hands back to the caller.
@@ -176,7 +415,21 @@
 	 * animation has to finish first — calling `onClose` immediately would remove
 	 * the element mid-tween.
 	 */
+	let closing = false;
+
 	function animateClose() {
+		/**
+		 * Once only. `onClose` is `history.back()`, so a second call goes back
+		 * *twice* — past the collection and out of the site.
+		 *
+		 * There are several ways to arrive here at once: the handler is bound to
+		 * both the backdrop and the stage, so a click in the letterbox around the
+		 * photograph is seen by each of them in turn; and Escape, a double click,
+		 * or an impatient second click can all overlap the close animation.
+		 */
+		if (closing) return;
+		closing = true;
+
 		if (prefersReducedMotion() || !containerEl) {
 			onClose();
 			return;
@@ -224,13 +477,44 @@
 		}
 	});
 
-	/** Keeps the active thumbnail in view as the selection moves. */
+	/**
+	 * How wide the centre marker should be, in rem, for the selected photograph.
+	 *
+	 * The thumbnails are a fixed height with width following the frame, so the
+	 * marker has to match or it would sit loose around a portrait and clip a
+	 * panorama. Derived rather than measured: reading the element back would need
+	 * a layout pass on every step.
+	 */
+	const THUMB_HEIGHT_REM = 3.25;
+	const markerWidth = $derived(
+		Math.min(9, Math.max(1.6, (photo.width / photo.height) * THUMB_HEIGHT_REM))
+	);
+
+	/**
+	 * Brings the selected thumbnail to the centre of the strip.
+	 *
+	 * The strip moves and the marker stays put, rather than the other way round —
+	 * with a long collection a travelling highlight means hunting for it again
+	 * after every step, while a fixed centre gives the eye somewhere to rest.
+	 *
+	 * The first run jumps rather than glides: on open the strip starts at scroll
+	 * zero, and animating from there would drag the whole collection past the
+	 * viewer before settling on the photograph already on screen.
+	 */
+	let strippedOnce = false;
+
 	$effect(() => {
 		void index;
 		void tick().then(() => {
-			filmstripEl
-				?.querySelector('[aria-current="true"]')
-				?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+			const active = filmstripEl?.querySelector('[aria-current="true"]');
+			if (!active) return;
+
+			active.scrollIntoView({
+				block: 'nearest',
+				inline: 'center',
+				behavior: strippedOnce && !prefersReducedMotion() ? 'smooth' : 'auto'
+			});
+			strippedOnce = true;
 		});
 	});
 
@@ -240,6 +524,36 @@
 	 */
 	$effect(() => {
 		containerEl?.focus();
+	});
+
+	/**
+	 * Flies the photograph in from where it sat in the grid.
+	 *
+	 * Runs once, on open — `index` is deliberately not read, or stepping to the
+	 * next photograph would replay the arrival from a rectangle belonging to the
+	 * previous one. The capture is consumed on read, so a cold-opened link or a
+	 * reload arrives plainly, which is correct: there was no grid to come from.
+	 *
+	 * Waits for the image to decode first. Animating an element that has not
+	 * painted yet flies an empty box across the screen and pops the picture in at
+	 * the end.
+	 */
+	$effect(() => {
+		const el = imageEl;
+		if (!el) return;
+
+		let cancelled = false;
+		const start = () => {
+			if (!cancelled) playPhotoOpen(el);
+		};
+
+		if (el.complete && el.naturalWidth > 0) start();
+		else el.addEventListener('load', start, { once: true });
+
+		return () => {
+			cancelled = true;
+			el.removeEventListener('load', start);
+		};
 	});
 
 	/**
@@ -339,12 +653,20 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+<!--
+	The backdrop dismisses on click. Its keyboard equivalent is Escape, already
+	bound on the window above — a dialog's documented way out — so a keydown
+	handler here would be a second, worse route to the same place on an element
+	that is not focusable in the first place.
+-->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
 	class="viewer"
 	role="dialog"
 	aria-modal="true"
 	aria-label="{collectionTitle} — photograph {index + 1} of {photos.length}"
 	tabindex="-1"
+	onclick={onBackdropClick}
 	bind:this={containerEl}
 >
 	<header>
@@ -402,26 +724,79 @@
 			swipeStart = null;
 		}}
 		ondblclick={(e) => (zoomed ? resetZoom() : zoomAt(2.5, e.clientX, e.clientY))}
-		onclick={(e) => {
-			// Clicking the surround dismisses; clicking the photograph itself must
-			// not, or zooming would be impossible.
-			if (e.target === e.currentTarget && !zoomed) animateClose();
-		}}
+		onclick={onBackdropClick}
 	>
 		<img
 			bind:this={imageEl}
-			src={fullSrc}
+			src={displaySrc}
 			alt={photo.alt}
+			decoding="async"
 			style:transform="translate3d({panX}px, {panY}px, 0) scale({zoom})"
+			style:visibility={loadState === 'ready' ? 'visible' : 'hidden'}
 			draggable="false"
+			onload={() => (loadState = 'ready')}
+			onerror={() => (loadState = 'error')}
 		/>
+
+		<!--
+			Progress while a zoom rendition streams in.
+			
+			Bottom left, over the photograph's corner rather than centred on it: the
+			point of zooming is to look at the picture, so the indicator must not
+			stand in front of the thing being examined. It reports real bytes — see
+			the fetch above — because a dial that eases to 90% and waits teaches
+			people to ignore dials.
+		-->
+		{#if zoomProgress !== null && zoomProgress < 1}
+			<div
+				class="zoom-progress"
+				style:--progress="{Math.round(zoomProgress * 100)}%"
+				role="progressbar"
+				aria-label="Loading full resolution"
+				aria-valuenow={Math.round(zoomProgress * 100)}
+				aria-valuemin="0"
+				aria-valuemax="100"
+			></div>
+		{/if}
+
+		{#if loadState === 'loading'}
+			<!-- Sits behind the image rather than replacing it, so the swap when it
+			     arrives doesn't shift anything. -->
+			<div class="status" role="status" aria-label="Loading photograph">
+				<span class="spinner"></span>
+			</div>
+		{:else if loadState === 'error'}
+			<div class="status error" role="alert">
+				<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+					<path
+						d="M12 3.5 1.7 21h20.6L12 3.5Z"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linejoin="round"
+					/>
+					<path d="M12 10v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+					<circle cx="12" cy="17.6" r="1.05" fill="currentColor" />
+				</svg>
+				<p>This photograph couldn’t be loaded.</p>
+			</div>
+		{/if}
 	</div>
 
+	<!--
+		Two transitions, because there are two ways this can change shape.
+
+		With no caption — the common case, since most photographs carry EXIF and
+		few carry a caption — toggling details mounts and unmounts the whole
+		`.info` block, so that is what has to animate. With a caption, `.info` is
+		already on screen and only the `dl` comes and goes. Putting the transition
+		on just one of them would leave the other case popping.
+	-->
 	{#if photo.caption || showMetadata}
-		<div class="info">
+		<div class="info" transition:detailPanel>
 			{#if photo.caption}<p class="caption">{photo.caption}</p>{/if}
 			{#if showMetadata && metadataEntries.length > 0}
-				<dl>
+				<dl transition:detailPanel>
 					{#each metadataEntries as entry (entry.label)}
 						<div>
 							<dt>{entry.label}</dt>
@@ -448,19 +823,26 @@
 		aria-label="Next photograph">›</button
 	>
 
-	<nav class="filmstrip" bind:this={filmstripEl} aria-label="All photographs">
-		{#each photos as p, i (p.id)}
-			<button
-				type="button"
-				aria-current={i === index}
-				aria-label="Photograph {i + 1}"
-				onclick={() => go(i)}
-				style:background-color={p.dominantColor}
-			>
-				<img src="/i/{p.id}/320.webp" alt="" loading="lazy" decoding="async" />
-			</button>
-		{/each}
-	</nav>
+	<!--
+	The marker's width follows the selected photograph's shape, so it frames a
+	portrait chip as snugly as a panorama.
+-->
+	<div class="filmstrip-window" style:--marker-width="{markerWidth}rem">
+		<nav class="filmstrip" bind:this={filmstripEl} aria-label="All photographs">
+			{#each photos as p, i (p.id)}
+				<button
+					type="button"
+					aria-current={i === index}
+					aria-label="Photograph {i + 1}"
+					onclick={() => go(i)}
+					style:background-color={p.dominantColor}
+					style:aspect-ratio="{p.width} / {p.height}"
+				>
+					<img src="/i/{p.id}/320.webp" alt="" loading="lazy" decoding="async" />
+				</button>
+			{/each}
+		</nav>
+	</div>
 </div>
 
 <style>
@@ -539,11 +921,22 @@
 	}
 
 	.stage img {
-		max-width: 100%;
-		max-height: 100%;
-		border-radius: 4px;
-		width: auto;
-		height: auto;
+		/*
+		 * The element fills the stage and the photograph is letterboxed inside it
+		 * by `object-fit: contain`, rather than the element being sized from the
+		 * photograph's own dimensions.
+		 *
+		 * Sizing it the other way — `width/height: auto` with `max-*: 100%` — let
+		 * the width constraint win and then derived the height from the aspect
+		 * ratio, so a tall photograph computed a height taller than the stage and
+		 * was clipped by its overflow. Filling a known box takes percentage
+		 * resolution out of the picture: whatever size the stage is, the
+		 * photograph fits within it.
+		 */
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
 		object-fit: contain;
 		user-select: none;
 		/* No transition while dragging — panning must track the pointer exactly. */
@@ -552,6 +945,55 @@
 
 	.stage.dragging img {
 		transition: none;
+	}
+
+	/* Centred in the stage, beneath the image so nothing moves on arrival. */
+	.status {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-content: center;
+		justify-items: center;
+		gap: 0.85rem;
+		pointer-events: none;
+		color: #8b8681;
+	}
+
+	.status p {
+		margin: 0;
+		font-size: 0.85rem;
+	}
+
+	.status.error {
+		color: #d99a94;
+	}
+
+	.spinner {
+		width: 1.75rem;
+		height: 1.75rem;
+		border: 2px solid currentColor;
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 700ms linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/*
+	 * A spinning ring is motion, and someone who asked for less of it should get
+	 * a static indicator rather than nothing at all — they still need to know the
+	 * photograph is on its way.
+	 */
+	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation: none;
+			border-top-color: currentColor;
+			opacity: 0.55;
+		}
 	}
 
 	.info {
@@ -628,31 +1070,63 @@
 		gap: 0.4rem;
 		overflow-x: auto;
 		/*
-		 * `safe center` centres a short strip but falls back to flex-start once it
-		 * overflows. Plain `center` would push the first thumbnails past the
-		 * scroll origin, making them unreachable.
+		 * Half the strip's width of empty space at each end.
+		 *
+		 * This is what lets the *strip* move while the selection stays put. Without
+		 * it the first and last thumbnails can never reach the middle — there is
+		 * nothing to scroll past them — so the highlight had to travel along a
+		 * stationary strip instead, and the eye had to hunt for it after every
+		 * step. With the padding, every thumbnail can be brought to the centre,
+		 * and the marker becomes a fixed point the photographs pass through.
 		 */
-		justify-content: safe center;
-		padding: 1rem 1.25rem;
+		padding: 1rem 50%;
 		scrollbar-width: thin;
 		scrollbar-color: #3a3634 transparent;
 	}
 
+	/*
+	 * The centre marker: a fixed outline the selected thumbnail sits inside,
+	 * rather than an outline that moves with the selection.
+	 *
+	 * Purely decorative and never hit-testable, so it cannot intercept a click
+	 * meant for the thumbnail beneath it.
+	 */
+	.filmstrip-window {
+		position: relative;
+	}
+
+	.filmstrip-window::after {
+		content: '';
+		position: absolute;
+		top: 1rem;
+		bottom: 1rem;
+		left: 50%;
+		translate: -50% 0;
+		width: var(--marker-width, 4.5rem);
+		outline: 2px solid #f5f3f0;
+		outline-offset: 2px;
+		border-radius: 2px;
+		pointer-events: none;
+		transition: width 200ms var(--ease-out-soft);
+	}
+
 	.filmstrip button {
 		flex: none;
-		width: 4.5rem;
-		height: 3rem;
+		/*
+		 * Height is fixed and width follows the photograph, so a portrait frame is
+		 * a tall narrow chip and a panorama a wide one. They used to be forced into
+		 * one 3:2 box and cropped to fit, which made a strip of portraits
+		 * indistinguishable from each other.
+		 */
+		height: 3.25rem;
+		width: auto;
 		padding: 0;
 		border: 0;
 		border-radius: 2px;
 		overflow: hidden;
 		cursor: pointer;
 		opacity: 0.45;
-		outline: 2px solid transparent;
-		outline-offset: 2px;
-		transition:
-			opacity 200ms,
-			outline-color 200ms;
+		transition: opacity 200ms;
 	}
 
 	.filmstrip button:hover {
@@ -661,13 +1135,38 @@
 
 	.filmstrip button[aria-current='true'] {
 		opacity: 1;
-		outline-color: #f5f3f0;
 	}
 
 	.filmstrip img {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+
+	/*
+	 * A pie rather than a bar: it reads as "a portion of a whole" at a size far
+	 * too small for a bar to show anything, and it stays legible over whatever
+	 * part of the photograph happens to be beneath it.
+	 *
+	 * `conic-gradient` with a hard stop — no blur, no easing — so the wedge edge
+	 * is exactly where the number says it is.
+	 */
+	.zoom-progress {
+		position: absolute;
+		left: 1.25rem;
+		bottom: 1.25rem;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 50%;
+		pointer-events: none;
+		background: conic-gradient(
+			#ffffff 0 var(--progress),
+			rgb(255 255 255 / 0.25) var(--progress) 100%
+		);
+		/* Reads on a white sky as well as a dark forest. */
+		box-shadow:
+			0 0 0 1px rgb(0 0 0 / 0.25),
+			0 1px 6px rgb(0 0 0 / 0.35);
 	}
 
 	@media (max-width: 40rem) {

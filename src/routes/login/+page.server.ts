@@ -12,9 +12,21 @@ import {
 } from '$lib/server/auth';
 import { rateLimit, resetRateLimit, LIMITS } from '$lib/server/rate-limit';
 
+/**
+ * The `next` parameter, but only when it points back into this site.
+ *
+ * An attacker-supplied absolute URL would turn the sign-in form into an open
+ * redirect, and `//evil.example` is a protocol-relative URL, not a local path —
+ * hence rejecting a leading double slash as well.
+ */
+function safeNext(url: URL): string | null {
+	const next = url.searchParams.get('next');
+	return next && next.startsWith('/') && !next.startsWith('//') ? next : null;
+}
+
 export const load: PageServerLoad = async ({ locals, url }) => {
 	// Already signed in — nothing to do here.
-	if (locals.user) redirect(303, url.searchParams.get('next') ?? '/admin/collections');
+	if (locals.user) redirect(303, safeNext(url) ?? '/');
 
 	// Surfaced so a fresh install can explain itself rather than showing a login
 	// form for an account that was never created.
@@ -24,7 +36,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 export const actions: Actions = {
 	default: async (event) => {
-		const { request, cookies, getClientAddress, url } = event;
+		const { request, getClientAddress, url } = event;
 		const data = await request.formData();
 		const email = String(data.get('email') ?? '')
 			.toLowerCase()
@@ -68,13 +80,8 @@ export const actions: Actions = {
 
 		const token = generateSessionToken();
 		const session = createSession(token, user.id);
-		setSessionCookie({ cookies } as never, token, session.expiresAt);
+		setSessionCookie(event, token, session.expiresAt);
 
-		const next = url.searchParams.get('next');
-		// Only ever redirect within this site — an attacker-supplied absolute URL
-		// would turn the login form into an open redirect.
-		const target = next && next.startsWith('/') && !next.startsWith('//') ? next : null;
-
-		redirect(303, user.mustChangePassword ? '/admin/password' : (target ?? '/admin/collections'));
+		redirect(303, user.mustChangePassword ? '/password' : (safeNext(url) ?? '/'));
 	}
 };

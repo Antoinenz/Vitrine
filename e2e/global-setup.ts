@@ -24,9 +24,27 @@ async function photo(width: number, height: number): Promise<Buffer> {
 			raw[i + 2] = 130;
 		}
 	}
-	return sharp(raw, { raw: { width, height, channels: 3 } })
-		.jpeg()
-		.toBuffer();
+	return (
+		sharp(raw, { raw: { width, height, channels: 3 } })
+			/**
+			 * Real EXIF, so the viewer's details panel has something to show.
+			 *
+			 * Without this every seeded photograph carries `{}`, the Details button
+			 * never renders, and the entire metadata path — extraction, projection
+			 * through the allow-list, and the panel itself — is invisible to the
+			 * suite.
+			 *
+			 * Only the IFD0 strings, because that is all that survives: sharp's
+			 * `withExif` did not carry the ExifIFD numerics (FNumber, ExposureTime,
+			 * ISO) through to something exifr could read back. One camera name is
+			 * enough to open the panel, and the allow-list below deliberately
+			 * permits four fields against this one populated value — so the panel is
+			 * also proved not to render empty rows for metadata that isn't there.
+			 */
+			.withExif({ IFD0: { Make: 'Test', Model: 'Camera One' } })
+			.jpeg()
+			.toBuffer()
+	);
 }
 
 const SIZES: [number, number][] = [
@@ -55,14 +73,14 @@ export default async function globalSetup() {
 		await new Promise((r) => setTimeout(r, 250));
 	}
 
-	await ctx.post('/admin/login', {
+	await ctx.post('/login', {
 		form: { email: 'e2e@test.com', password: 'bootstrappassword' },
 		maxRedirects: 0
 	});
 
 	// The account is seeded with `mustChangePassword`, so this is required before
 	// anything else is reachable.
-	await ctx.post('/admin/password', {
+	await ctx.post('/password', {
 		form: {
 			current: 'bootstrappassword',
 			next: 'rotatedpassword123',
@@ -71,36 +89,78 @@ export default async function globalSetup() {
 		maxRedirects: 0
 	});
 
-	const created = await ctx.post('/admin/collections?/create', {
+	/**
+	 * The slug the create action derives from this title. Asserted rather than
+	 * assumed, because every path below is addressed by slug now — if slug
+	 * generation ever changed, the uploads would 404 with no hint as to why.
+	 */
+	const slug = 'sierra';
+
+	// Created from the artist page now — there is no separate collections screen.
+	const created = await ctx.post('/?/createCollection', {
 		form: { title: 'Sierra' },
 		maxRedirects: 0
 	});
 	const location = created.headers()['location'] ?? '';
-	const collectionId = location.split('/').pop();
+	if (location !== `/c/${slug}`) {
+		throw new Error(`Seeding failed: expected a redirect to /c/${slug}, got "${location}"`);
+	}
+
+	/**
+	 * The collection id, scraped from the owner's link to the photo workbench.
+	 *
+	 * Everything else here is addressed by slug, but the workbench is the last
+	 * piece of the old panel and is still addressed by id — an id that now
+	 * appears nowhere else, since creating redirects to the slug. When the
+	 * collection editor moves inline, this and the `?/settings` post below both
+	 * become slug-addressed and this scrape goes away.
+	 */
+	const collectionPage = await (await ctx.get(`/c/${slug}`)).text();
+	const collectionId = /\/admin\/collections\/([0-9a-f-]{36})/.exec(collectionPage)?.[1];
 	if (!collectionId) {
-		throw new Error(`Seeding failed: no collection id in redirect (${created.status()})`);
+		throw new Error('Seeding failed: no workbench link on the collection page');
 	}
 
 	for (let i = 0; i < SIZES.length; i++) {
 		const body = await photo(...SIZES[i]);
-		const res = await ctx.post(`/admin/collections/${collectionId}/upload?name=p${i}.jpg`, {
+		// Slug-addressed, so seeding no longer needs the collection id — but the
+		// slug is only set by the `settings` post below, so this still runs against
+		// the auto-generated one.
+		const res = await ctx.post(`/api/collections/${slug}/upload?name=p${i}.jpg`, {
 			headers: { 'content-type': 'image/jpeg' },
 			data: body
 		});
 		if (!res.ok()) throw new Error(`Upload ${i} failed: ${res.status()} ${await res.text()}`);
 	}
 
+	/**
+	 * Built by hand rather than with the `form` option, which takes a flat object
+	 * and so cannot express a repeated field. `metadataFields` is a checkbox
+	 * group: it arrives as one key appearing several times.
+	 */
+	const settings = new URLSearchParams({
+		title: 'Sierra',
+		slug: 'sierra',
+		description: 'High country, late light.',
+		visibility: 'public'
+	});
+	/**
+	 * Publishes the EXIF the photographs carry. The allow-list defaults to empty,
+	 * so without this the details panel stays shut even though the metadata was
+	 * read and stored correctly — the button that opens it never renders, and the
+	 * whole metadata path goes untested.
+	 */
+	for (const field of ['camera', 'aperture', 'shutterSpeed', 'iso']) {
+		settings.append('metadataFields', field);
+	}
+
 	await ctx.post(`/admin/collections/${collectionId}?/settings`, {
-		form: {
-			title: 'Sierra',
-			slug: 'sierra',
-			description: 'High country, late light.',
-			visibility: 'public'
-		},
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		data: settings.toString(),
 		maxRedirects: 0
 	});
 
-	await ctx.post('/admin/profile', {
+	await ctx.post('/?/profile', {
 		form: { displayName: 'Test Artist', bio: 'Photographs.', accentColor: '#264653' },
 		maxRedirects: 0
 	});

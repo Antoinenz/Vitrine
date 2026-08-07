@@ -5,9 +5,43 @@
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import { stackHover } from '$lib/motion/stack-hover';
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
-	import type { PageData } from './$types';
+	import { entrance } from '$lib/motion/entrance';
+	import OwnerBar from '$lib/components/OwnerBar.svelte';
+	import CollectionCreateModal from '$lib/components/CollectionCreateModal.svelte';
+	import ProfileModal from '$lib/components/ProfileModal.svelte';
+	import { setDropTarget, heldFolderName } from '$lib/upload/target.svelte';
+	import type { ActionData, PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	let creating = $state(false);
+	let editingProfile = $state(false);
+
+	/**
+	 * A folder dropped on this page has no collection to go into, so the files
+	 * are held and the create modal opens with the folder's name already filled
+	 * in — which is almost always what the artist would have typed.
+	 */
+	let suggestedTitle = $state('');
+
+	/**
+	 * Claims window-wide drops while the artist page is open.
+	 *
+	 * `kind: 'create'` rather than a collection: the overlay holds the files and
+	 * calls back here, and the redirect into the newly created collection flushes
+	 * them. Owner only — a visitor never has the overlay mounted at all.
+	 */
+	$effect(() => {
+		if (!data.isOwner) return;
+		setDropTarget({
+			kind: 'create',
+			onHeld: () => {
+				suggestedTitle = heldFolderName() ?? '';
+				creating = true;
+			}
+		});
+		return () => setDropTarget(null);
+	});
 
 	const name = $derived(data.profile?.displayName || 'Vitrine');
 
@@ -78,6 +112,22 @@
 		if (!hasPending(collectionId)) return;
 		void playIntoStack(node, collectionId);
 	}
+
+	/**
+	 * Settles the header in ahead of the stacks, so the page assembles in reading
+	 * order rather than appearing all at once beneath a header that was somehow
+	 * already there.
+	 *
+	 * Skipped entirely when returning from a collection: a photograph is already
+	 * flying back into its stack, and a second animation starting at the same
+	 * moment would compete with the thing the eye is actually following. The
+	 * header was on screen when the visitor left, so re-introducing it would be
+	 * wrong anyway.
+	 */
+	function headerEntrance(node: HTMLElement) {
+		if (data.collections.some((c) => hasPending(c.id))) return;
+		return entrance({ stagger: '.avatar, .intro-text > *' })(node);
+	}
 </script>
 
 <svelte:head>
@@ -94,8 +144,28 @@
 	{/if}
 </svelte:head>
 
+{#if data.isOwner && data.owner}
+	<OwnerBar onCreate={() => (creating = true)} onEditProfile={() => (editingProfile = true)} />
+
+	<CollectionCreateModal
+		open={creating}
+		onClose={() => (creating = false)}
+		initialTitle={suggestedTitle}
+		message={form?.scope === 'create' ? form.message : null}
+	/>
+
+	<ProfileModal
+		open={editingProfile}
+		onClose={() => (editingProfile = false)}
+		profile={data.owner.profile}
+		candidates={data.owner.candidates}
+		message={form?.scope === 'profile' ? form.message : null}
+		saved={form?.scope === 'profile' && !!form.saved}
+	/>
+{/if}
+
 {#if data.profile}
-	<header class="intro">
+	<header class="intro" {@attach headerEntrance}>
 		{#if data.profile.avatarPhotoId}
 			<img
 				class="avatar"
@@ -103,6 +173,7 @@
 				alt={name}
 				width="72"
 				height="72"
+				decoding="async"
 			/>
 		{/if}
 
@@ -130,7 +201,12 @@
 {#if data.collections.length === 0}
 	<p class="empty">
 		{#if data.isOwner}
-			Nothing published yet. <a href={resolve('/admin/collections')}>Add a collection</a> to get started.
+			<!-- A button rather than a link now: creating happens in a modal on this
+			     page, so there is nowhere to navigate to. -->
+			Nothing here yet.
+			<button type="button" class="link" onclick={() => (creating = true)}>
+				Make your first collection</button
+			>, or drop a folder of photographs anywhere on this page.
 		{:else}
 			Nothing here yet.
 		{/if}
@@ -161,6 +237,27 @@
 						use:stackHover
 						{@attach (node) => returnTransition(node, collection.id)}
 					>
+						<!--
+							Owner-only: a collection with nothing processed yet.
+
+							Deliberately not a `.layer` / `.card` / `[data-photo]` element.
+							Those three are the transition's and the hover's vocabulary; a
+							placeholder answering to them would be cloned into the ghost
+							layer and flown at the grid. `stackHover` finds no `.card` here
+							and returns without binding, so an empty tile is simply inert.
+						-->
+						{#if collection.stack.length === 0}
+							<div class="placeholder" class:working={collection.pendingCount > 0}>
+								{#if collection.failedCount > 0}
+									{collection.failedCount} failed
+								{:else if collection.pendingCount > 0}
+									{collection.pendingCount} processing…
+								{:else}
+									Empty
+								{/if}
+							</div>
+						{/if}
+
 						{#each collection.stack as photo, i (photo.id)}
 							{@const s = scatter(photo.id)}
 							<div
@@ -174,13 +271,12 @@
 								style:--drift-dir={s.driftDir}
 								style:z-index={collection.stack.length - i}
 							>
-								<div class="card">
+								<div class="card" style:--ratio="{photo.width} / {photo.height}">
 									<PhotoImage
 										{photo}
 										sizes="(max-width: 40rem) 80vw, 320px"
 										loading={i === 0 ? 'eager' : 'lazy'}
 										fetchpriority={i === 0 ? 'high' : 'auto'}
-										aspect="4 / 3"
 									/>
 								</div>
 							</div>
@@ -293,12 +389,22 @@
 	 * one vanishing point — set per-layer, each would rotate about its own centre
 	 * and the stack would splay apart instead of tilting as one object.
 	 */
+	/*
+	 * The stack has a fixed footprint, and each print keeps its own shape inside
+	 * it.
+	 *
+	 * Sizing the container from its tallest card would let a portrait behind a
+	 * landscape push the caption down — and letting each card drive layout gave
+	 * a pile of mismatched rectangles. A constant box with the photographs
+	 * *contained* within it keeps every stack the same height on the page while
+	 * the prints themselves stay whatever shape they were taken.
+	 */
 	.stack {
 		position: relative;
+		aspect-ratio: 4 / 3;
 		perspective: var(--stack-perspective);
 		transform-style: preserve-3d;
-		/* Room for the fanned layers, so a hovered stack never clips its
-		   neighbours or provokes a scrollbar. */
+		/* Room for the fan, so a hovered stack never clips its neighbours. */
 		padding: calc(var(--stack-offset) * var(--depth));
 	}
 
@@ -320,6 +426,15 @@
 	}
 
 	.card {
+		/*
+		 * Sized by the photograph's own ratio and contained in the layer, so a
+		 * portrait is narrow and tall, a panorama wide and short, and neither
+		 * escapes the stack's footprint.
+		 */
+		aspect-ratio: var(--ratio);
+		height: 100%;
+		width: auto;
+		max-width: 100%;
 		/* Square corners — a print has edges, not radii. */
 		overflow: hidden;
 		background: var(--color-surface-raised);
@@ -336,10 +451,12 @@
 			0 18px 44px -18px rgb(28 25 23 / 0.4);
 	}
 
-	/* Only the top layer is in flow; the rest stack up behind it. */
-	.layer:not(:first-child) {
+	/* Every layer fills the stack's box and centres its card within it. */
+	.layer {
 		position: absolute;
 		inset: calc(var(--stack-offset) * var(--depth));
+		display: grid;
+		place-items: center;
 	}
 
 	/*
@@ -353,6 +470,11 @@
 	.stack-link:focus-visible .layer {
 		transform: translate3d(calc(var(--dx) * 2.4), calc(var(--dy) * 2.4), 0)
 			rotate(calc(var(--rot) * 1.5));
+	}
+
+	.card :global(.frame) {
+		width: 100%;
+		height: 100%;
 	}
 
 	.caption {
@@ -377,6 +499,51 @@
 		color: var(--color-ink-subtle);
 	}
 
+	/*
+	 * The empty/processing tile. Sits inside `.stack`'s padding so it occupies
+	 * exactly the footprint a fanned stack would, and neighbouring collections
+	 * don't shift as photographs finish processing and it is replaced.
+	 */
+	.placeholder {
+		position: absolute;
+		inset: calc(var(--stack-offset) * var(--depth));
+		display: grid;
+		place-items: center;
+		/* Square, like `.card` — a print has edges, not radii. */
+		border: 1px dashed var(--color-hairline);
+		color: var(--color-ink-subtle);
+		font-size: 0.8rem;
+	}
+
+	/*
+	 * Only while photographs are actually being processed — not for an empty
+	 * collection, and not for a failed one. A pulse means "still working"; on a
+	 * tile that is simply empty it would promise something is coming when nothing
+	 * is, and on a failure it would be actively misleading.
+	 *
+	 * Opacity alone, so it composites without touching layout — this sits inside
+	 * `.stack`, whose rectangle the transition measures.
+	 */
+	.working {
+		animation: pulse 1.8s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.55;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.working {
+			animation: none;
+		}
+	}
+
 	.tag {
 		display: inline-block;
 		margin-left: 0.35rem;
@@ -394,5 +561,17 @@
 		padding: 0 1.5rem 8rem;
 		font-size: 0.95rem;
 		color: var(--color-ink-muted);
+	}
+
+	/* A button that opens a modal, styled as the link it replaced. */
+	.link {
+		font: inherit;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--color-accent);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: pointer;
 	}
 </style>

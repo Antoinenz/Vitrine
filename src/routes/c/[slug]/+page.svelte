@@ -5,6 +5,9 @@
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
+	import { entrance } from '$lib/motion/entrance';
+	import { prefersReducedMotion } from '$lib/motion/gsap';
+	import { capturePhotoOrigin, cancelPhotoOrigin } from '$lib/motion/photo-open';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -22,6 +25,14 @@
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 		event.preventDefault();
 
+		/**
+		 * Where this photograph sits right now, so the viewer can fly it in from
+		 * here rather than cutting to it. Captured before the await: `preloadData`
+		 * can take long enough for a scroll to move the grid underneath.
+		 */
+		const frame = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('.frame');
+		if (frame) capturePhotoOrigin(frame);
+
 		const href = resolve('/c/[slug]/[photoId]', {
 			slug: data.collection.slug,
 			photoId: data.photos[index].id
@@ -33,6 +44,9 @@
 		if (result.type === 'loaded' && result.status === 200) {
 			pushState(href, { photo: { id: data.photos[index].id, index } });
 		} else {
+			// A full navigation rebuilds the page, so the captured rectangle belongs
+			// to a grid that no longer exists.
+			cancelPhotoOrigin();
 			await goto(href);
 		}
 	}
@@ -85,9 +99,17 @@
 		 */
 		requestAnimationFrame(() => {
 			requestAnimationFrame(() => {
-				gridEl
-					?.querySelectorAll('[data-photo]')
-					[index]?.scrollIntoView({ block: 'center', behavior: 'auto' });
+				gridEl?.querySelectorAll('[data-photo]')[index]?.scrollIntoView({
+					block: 'center',
+					/*
+					 * Glides rather than jumping. Closing the viewer already replaces
+					 * the whole screen; teleporting the page underneath at the same
+					 * moment leaves no clue that the grid moved at all, so a visitor
+					 * deep in a long collection cannot tell where they have landed.
+					 * Watching it travel is what makes the position legible.
+					 */
+					behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+				});
 			});
 		});
 	});
@@ -118,12 +140,73 @@
 	 * so the same code path covers every way of reaching this page. The
 	 * destination looks identical either way; only the journey differs.
 	 */
+	/**
+	 * Which collection has already been revealed, so it happens once per arrival.
+	 *
+	 * A plain `let`, not `$state`: it is read and written inside the effect below,
+	 * and reactive state would make that a loop.
+	 *
+	 * The guard exists because the reveal is an *arrival* animation, and the
+	 * effect re-runs on every data change, not just on arrival. When an upload
+	 * finishes, the queue calls `invalidateAll()`; the load re-runs, `c` is a new
+	 * object, and the effect fires again — with nothing pending to continue from,
+	 * so `playIntoGrid` returns false and the entire grid fades and rises from
+	 * scratch. Every photograph on the page would flash after each batch of
+	 * uploads. Photos are visible by default, so newly-arrived ones simply appear
+	 * rather than animating, which is the right behaviour anyway: they were added,
+	 * not navigated to.
+	 */
+	/**
+	 * Built once, deliberately.
+	 *
+	 * Svelte destroys and recreates an attachment whenever its expression
+	 * changes, and `entrance({ … })` returns a fresh closure on every render — so
+	 * inlining it in the markup would replay the header animation on every state
+	 * change, including the `invalidateAll()` that fires when an upload finishes.
+	 * A stable reference runs it once, on mount.
+	 */
+	const headEntrance = entrance({ stagger: '.head > *' });
+
+	/**
+	 * Whether the page has scrolled past its own header.
+	 *
+	 * Drives the slim bar that takes the header's place, so the collection's name
+	 * and the way back are still there deep into a long scroll — which is exactly
+	 * where a visitor is most likely to have forgotten both.
+	 */
+	let pastHeader = $state(false);
+
+	/**
+	 * An IntersectionObserver on the header rather than a scroll listener.
+	 *
+	 * A scroll handler runs on every frame of every scroll and would have to read
+	 * `getBoundingClientRect`, forcing layout each time. This fires twice: once
+	 * when the header leaves, once when it comes back.
+	 */
+	function headerWatch(node: HTMLElement) {
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				pastHeader = !entry.isIntersecting;
+			},
+			// Swaps over as the header's last line clears the top of the window.
+			{ threshold: 0, rootMargin: '0px' }
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}
+
+	let revealedFor: string | null = null;
+
 	$effect(() => {
 		const el = gridEl;
 		if (!el) return;
 
+		const id = c.id;
+		if (revealedFor === id) return;
+		revealedFor = id;
+
 		let cancelled = false;
-		void playIntoGrid(el, c.id).then((played) => {
+		void playIntoGrid(el, id).then((played) => {
 			if (!played && !cancelled) revealGrid(el);
 		});
 
@@ -157,8 +240,49 @@
 
 <a class="back" href={resolve('/')}>← {data.artist.name || 'Back'}</a>
 
-<header class="head">
+<!--
+	Unlike the artist page's header, this one animates however the visitor
+	arrived. There the header was already on screen before they left, so
+	re-introducing it on the way back would be a lie; here the title is new
+	content every time.
+
+	It runs during the stack→grid flight rather than waiting for it. The two
+	don't compete: the photographs are moving through the grid below while this
+	settles above them, and holding the title back until the flight finished
+	would leave the page headless for the most conspicuous half-second it has.
+-->
+<!--
+	The header's stand-in once it has scrolled away.
+
+	`position: fixed`, deliberately, not `sticky`: a sticky element participates
+	in layout and would sit inside the flow the stack→grid transition measures.
+	Fixed takes it out entirely, so the rectangles the animation was captured
+	against are unchanged.
+
+	`aria-hidden` while it is off screen, so a screen reader doesn't meet the
+	collection's name and a second back link that a sighted visitor cannot see.
+-->
+<div class="topbar" class:shown={pastHeader} aria-hidden={!pastHeader}>
+	<a class="topbar-back" href={resolve('/')} tabindex={pastHeader ? 0 : -1}>
+		<span aria-hidden="true">←</span> Back
+	</a>
+	<span class="topbar-title">{c.title}</span>
+</div>
+
+<header class="head" {@attach headEntrance} {@attach headerWatch}>
 	<h1>{c.title}</h1>
+	{#if data.isOwner}
+		<!--
+			The way through to what is left of the old panel: the photo workbench,
+			where photographs are reordered, captioned and given a cover. That moves
+			inline next; until it does, this is how the artist reaches it — and
+			without it the workbench would be unreachable except by typing a URL
+			containing a collection id that appears nowhere.
+		-->
+		<p class="owner-link">
+			<a href={resolve('/admin/collections/[id]', { id: c.id })}>Manage photos ↗</a>
+		</p>
+	{/if}
 	{#if c.description}
 		<p class="description">{c.description}</p>
 	{/if}
@@ -269,6 +393,80 @@
 		text-wrap: pretty;
 	}
 
+	.topbar {
+		position: fixed;
+		inset: 0 0 auto;
+		z-index: 40;
+		display: grid;
+		/* Three tracks with equal outer ones, so the title is centred against the
+		   window rather than against whatever the back link happens to measure. */
+		grid-template-columns: 1fr auto 1fr;
+		align-items: center;
+		gap: 1rem;
+		padding: 0.7rem 1.5rem;
+		background: var(--color-surface-raised);
+		border-bottom: 1px solid var(--color-hairline);
+
+		/* Out of the way, and untouchable, until it is wanted. */
+		opacity: 0;
+		transform: translateY(-100%);
+		pointer-events: none;
+		transition:
+			opacity 220ms var(--ease-out-soft),
+			transform 220ms var(--ease-out-soft);
+	}
+
+	.topbar.shown {
+		opacity: 1;
+		transform: none;
+		pointer-events: auto;
+	}
+
+	.topbar-title {
+		grid-column: 2;
+		font-size: 0.9rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		/* A long title truncates rather than pushing the bar taller mid-scroll. */
+		max-width: 60vw;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.topbar-back {
+		grid-column: 1;
+		justify-self: start;
+		font-size: 0.85rem;
+		color: var(--color-ink-muted);
+		text-decoration: none;
+	}
+
+	.topbar-back:hover {
+		color: var(--color-ink);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.topbar {
+			transition: none;
+		}
+	}
+
+	.owner-link {
+		margin: 0.35rem 0 0;
+		font-size: 0.8rem;
+	}
+
+	.owner-link a {
+		color: var(--color-ink-subtle);
+		text-decoration: none;
+		border-bottom: 1px solid var(--color-hairline);
+	}
+
+	.owner-link a:hover {
+		color: var(--color-ink);
+	}
+
 	.count {
 		margin: 0.75rem 0 0;
 		font-size: 0.8rem;
@@ -303,7 +501,14 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
 		gap: 2.5rem 2rem;
-		align-items: start;
+		/*
+		 * Photographs in a row sit centred against each other rather than hanging
+		 * from the top. Every cell keeps its own aspect ratio, so a landscape frame
+		 * beside a portrait one left a ragged top edge and a large void beneath the
+		 * short one; centring shares that space and the row reads as one line of
+		 * prints.
+		 */
+		align-items: center;
 	}
 
 	figure {

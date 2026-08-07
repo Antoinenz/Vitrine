@@ -15,6 +15,20 @@
       "when": 1785808582676,
       "tag": "0001_legal_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785824852688,
+      "tag": "0002_footer_and_licence",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785883532637,
+      "tag": "0003_collection_date_and_order",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,11 @@ export const GET: RequestHandler = ({ url }) => {
 		'User-agent: *',
 		'Disallow: /admin',
 		'Disallow: /api',
+		// The artist's own doors. Nothing secret — they're guarded server-side —
+		// but there is no reason for them to turn up in a search result.
+		'Disallow: /login',
+		'Disallow: /password',
+		'Disallow: /settings',
 		'',
 		`Sitemap: ${url.origin}/sitemap.xml`,
 		''

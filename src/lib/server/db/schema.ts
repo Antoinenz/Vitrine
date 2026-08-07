@@ -51,6 +51,10 @@ export const sessions = sqliteTable(
  * One row per user. Split from `users` so that public page rendering never
  * touches the table holding password hashes.
  */
+/** How the artist page orders collections. See `profiles.collectionOrder`. */
+export const COLLECTION_ORDERS = ['date', 'custom'] as const;
+export type CollectionOrder = (typeof COLLECTION_ORDERS)[number];
+
 export const profiles = sqliteTable('profiles', {
 	userId: text('user_id')
 		.primaryKey()
@@ -64,7 +68,26 @@ export const profiles = sqliteTable('profiles', {
 		.$type<{ label: string; url: string }[]>()
 		.notNull()
 		.default([]),
-	accentColor: text('accent_color').notNull().default('#1c1917')
+	accentColor: text('accent_color').notNull().default('#1c1917'),
+
+	/** Id from `$lib/licences`, shown in the footer. */
+	licence: text('licence').notNull().default('all-rights-reserved'),
+	/** A short line in the footer — a print enquiry address, a studio note. */
+	footerNote: text('footer_note').notNull().default(''),
+	/** `[{ label, url }]`, ordered, shown beside the legal links. */
+	footerLinks: text('footer_links', { mode: 'json' })
+		.$type<{ label: string; url: string }[]>()
+		.notNull()
+		.default([]),
+
+	/**
+	 * How the artist page orders collections.
+	 *
+	 * `date` sorts by `collections.datedAt`, newest first — the right default for
+	 * a body of work that accumulates, since a new series belongs at the top
+	 * without anyone having to arrange anything. `custom` uses `sortKey`.
+	 */
+	collectionOrder: text('collection_order').$type<CollectionOrder>().notNull().default('date')
 });
 
 // ---------------------------------------------------------------------------
@@ -129,6 +152,19 @@ export const collections = sqliteTable(
 			.notNull()
 			.default([]),
 
+		/**
+		 * The date the artist ascribes to the work, not the date the row was made.
+		 *
+		 * A collection is usually uploaded long after it was shot, so `createdAt`
+		 * is the wrong thing to order a body of work by. This is editable, and it
+		 * drives the default gallery order.
+		 *
+		 * Nullable deliberately: SQLite cannot `ADD COLUMN` with a non-constant
+		 * default, and null already carries the meaning "never set, fall back to
+		 * `createdAt`" — which the ordering expresses with `coalesce`.
+		 */
+		datedAt: integer('dated_at', { mode: 'timestamp_ms' }),
+
 		publishedAt: integer('published_at', { mode: 'timestamp_ms' }),
 		createdAt: createdAt(),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
@@ -140,7 +176,8 @@ export const collections = sqliteTable(
 		// artist later can't collide with the first one's slugs.
 		uniqueIndex('collections_owner_slug_idx').on(t.ownerId, t.slug),
 		index('collections_visibility_idx').on(t.visibility),
-		index('collections_sort_idx').on(t.ownerId, t.sortKey)
+		index('collections_sort_idx').on(t.ownerId, t.sortKey),
+		index('collections_dated_idx').on(t.ownerId, t.datedAt)
 	]
 );
 
