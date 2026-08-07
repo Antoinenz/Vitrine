@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { gsap, prefersReducedMotion, MOTION } from '$lib/motion/gsap';
 	import { detailPanel } from '$lib/motion/entrance';
+	import { playPhotoOpen } from '$lib/motion/photo-open';
 	import type { PhotoView } from '$lib/server/photos';
 
 	/**
@@ -523,6 +524,36 @@
 	 */
 	$effect(() => {
 		containerEl?.focus();
+	});
+
+	/**
+	 * Flies the photograph in from where it sat in the grid.
+	 *
+	 * Runs once, on open — `index` is deliberately not read, or stepping to the
+	 * next photograph would replay the arrival from a rectangle belonging to the
+	 * previous one. The capture is consumed on read, so a cold-opened link or a
+	 * reload arrives plainly, which is correct: there was no grid to come from.
+	 *
+	 * Waits for the image to decode first. Animating an element that has not
+	 * painted yet flies an empty box across the screen and pops the picture in at
+	 * the end.
+	 */
+	$effect(() => {
+		const el = imageEl;
+		if (!el) return;
+
+		let cancelled = false;
+		const start = () => {
+			if (!cancelled) playPhotoOpen(el);
+		};
+
+		if (el.complete && el.naturalWidth > 0) start();
+		else el.addEventListener('load', start, { once: true });
+
+		return () => {
+			cancelled = true;
+			el.removeEventListener('load', start);
+		};
 	});
 
 	/**

@@ -320,3 +320,51 @@ test('clicking the dark surround closes, but not near a control', async ({ page 
 	await expect(page.locator(VIEWER)).toHaveCount(0);
 	await expect(page).toHaveURL(/\/c\/sierra$/);
 });
+
+test('opening a photograph brings it in from its place in the grid', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+
+	/**
+	 * Watch for the transform before clicking, rather than sampling after.
+	 *
+	 * The flight is under 400ms, so polling afterwards races it — the same reason
+	 * the ghost-overlay test installs an observer up front. Identity matrices are
+	 * ignored: Svelte writes `translate3d(0,0,0) scale(1)` for zoom and pan, so
+	 * "has a transform" would be true even with no animation at all.
+	 */
+	await page.evaluate(() => {
+		const w = window as Window & { __flew?: boolean };
+		w.__flew = false;
+		const check = () => {
+			const img = document.querySelector('[role="dialog"] img');
+			if (!img) return;
+			const m = new DOMMatrix(getComputedStyle(img).transform);
+			if (Math.abs(m.a - 1) > 0.01 || Math.abs(m.e) > 1 || Math.abs(m.f) > 1) w.__flew = true;
+		};
+		new MutationObserver(check).observe(document.body, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			attributeFilter: ['style']
+		});
+	});
+
+	await page.locator('[data-photo] a').nth(3).click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	await expect
+		.poll(() => page.evaluate(() => (window as Window & { __flew?: boolean }).__flew))
+		.toBe(true);
+
+	// And it settles: GSAP hands the transform back so zoom and pan still work.
+	const img = page.locator(`${VIEWER} img`).first();
+	await expect
+		.poll(async () =>
+			img.evaluate((el) => {
+				const m = new DOMMatrix(getComputedStyle(el).transform);
+				return Math.abs(m.a - 1) < 0.01 && Math.abs(m.e) < 1 && Math.abs(m.f) < 1;
+			})
+		)
+		.toBe(true);
+});

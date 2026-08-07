@@ -7,6 +7,7 @@
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
 	import { prefersReducedMotion } from '$lib/motion/gsap';
+	import { capturePhotoOrigin, cancelPhotoOrigin } from '$lib/motion/photo-open';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -24,6 +25,14 @@
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 		event.preventDefault();
 
+		/**
+		 * Where this photograph sits right now, so the viewer can fly it in from
+		 * here rather than cutting to it. Captured before the await: `preloadData`
+		 * can take long enough for a scroll to move the grid underneath.
+		 */
+		const frame = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('.frame');
+		if (frame) capturePhotoOrigin(frame);
+
 		const href = resolve('/c/[slug]/[photoId]', {
 			slug: data.collection.slug,
 			photoId: data.photos[index].id
@@ -35,6 +44,9 @@
 		if (result.type === 'loaded' && result.status === 200) {
 			pushState(href, { photo: { id: data.photos[index].id, index } });
 		} else {
+			// A full navigation rebuilds the page, so the captured rectangle belongs
+			// to a grid that no longer exists.
+			cancelPhotoOrigin();
 			await goto(href);
 		}
 	}
