@@ -88,7 +88,23 @@
 	 */
 	function warm(collection: (typeof data.collections)[number], href: string) {
 		void preloadData(href);
-		for (const photo of collection.stack) new Image().src = photo.src;
+
+		/**
+		 * Decoded, not merely fetched.
+		 *
+		 * Assigning `src` gets the bytes; it does not turn them into pixels. An
+		 * image that has never been painted still owes a decode, and the browser
+		 * takes that on the main thread at the first frame that shows it — so
+		 * warming this way used to leave the whole decode cost sitting exactly on
+		 * the transition it was meant to smooth. It showed up as a stutter on the
+		 * first opening of a collection and not on later ones.
+		 */
+		for (const photo of collection.stack) {
+			const image = new Image();
+			image.src = photo.src;
+			// Nothing depends on it finishing; a failure just means no head start.
+			void image.decode().catch(() => undefined);
+		}
 	}
 
 	/**
