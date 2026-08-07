@@ -120,7 +120,11 @@ test('a modified click still opens a real tab', async ({ page, context }) => {
 	 * is what made this the flakiest test in the suite; it failed roughly one run
 	 * in three regardless of machine load.
 	 */
-	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+	// Generous: this waits out an animation, and on a loaded machine the frames
+	// driving it can be starved well past the default five seconds.
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1', {
+		timeout: 15_000
+	});
 
 	const popup = context.waitForEvent('page');
 	await page
