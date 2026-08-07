@@ -111,6 +111,17 @@ test('closing returns the viewed photo to the viewport', async ({ page }) => {
 test('a modified click still opens a real tab', async ({ page, context }) => {
 	await page.goto('/c/sierra');
 
+	/**
+	 * Wait for the arrival animation to finish before clicking.
+	 *
+	 * `revealGrid` tweens the photographs from `opacity: 0` and a 12px offset, and
+	 * Playwright's actionability checks do not consider opacity — so the click was
+	 * being delivered to a target that was still invisible and still moving. That
+	 * is what made this the flakiest test in the suite; it failed roughly one run
+	 * in three regardless of machine load.
+	 */
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+
 	const popup = context.waitForEvent('page');
 	await page
 		.locator('[data-photo] a')
@@ -118,8 +129,18 @@ test('a modified click still opens a real tab', async ({ page, context }) => {
 		.click({ modifiers: ['ControlOrMeta'] });
 	const opened = await popup;
 
-	// The overlay must not hijack ctrl/cmd-click.
-	await expect(opened).toHaveURL(/\/c\/sierra\/[a-f0-9-]{36}$/);
+	/**
+	 * The overlay must not hijack ctrl/cmd-click.
+	 *
+	 * `waitForURL` with `commit` rather than `toHaveURL`, because ctrl-click opens
+	 * the tab in the *background* and browsers deprioritise loading those — the
+	 * page can sit on `about:blank` for a long time while the foreground tab
+	 * holds the CPU. `toHaveURL` polls for a fully settled load and was timing out
+	 * roughly one run in three, which is what made this the suite's flakiest test.
+	 * The claim being made is that the browser genuinely navigated a new tab to
+	 * the photograph's own URL, and a committed navigation is exactly that.
+	 */
+	await opened.waitForURL(/\/c\/sierra\/[a-f0-9-]{36}$/, { waitUntil: 'commit' });
 	await opened.close();
 });
 
