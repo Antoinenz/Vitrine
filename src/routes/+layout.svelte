@@ -10,7 +10,19 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<!--
+		The artist's portrait, cropped square, when they've chosen one — a gallery's
+		icon should be the photographer rather than a framework mark. The bundled
+		SVG stays as the fallback for a fresh install with no portrait set.
+
+		`/favicon.png` is a stable path rather than a rendition URL, so it carries a
+		short revalidating cache and needs no version query string.
+	-->
+	{#if data.hasPortrait}
+		<link rel="icon" type="image/png" href="/favicon.png" />
+	{:else}
+		<link rel="icon" href={favicon} />
+	{/if}
 </svelte:head>
 
 <!--

@@ -45,6 +45,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			licence: null,
 			footerNote: '',
 			footerLinks: [],
+			hasPortrait: false,
 			isOwner: false
 		};
 	}
@@ -55,7 +56,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			displayName: profiles.displayName,
 			licence: profiles.licence,
 			footerNote: profiles.footerNote,
-			footerLinks: profiles.footerLinks
+			footerLinks: profiles.footerLinks,
+			avatarPhotoId: profiles.avatarPhotoId
 		})
 		.from(profiles)
 		.where(eq(profiles.userId, owner.id))
@@ -79,6 +81,11 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		licence: profile?.licence ?? null,
 		footerNote: profile?.footerNote ?? '',
 		footerLinks: profile?.footerLinks ?? [],
+		/**
+		 * A boolean, not the id: the icon lives at a fixed path, so the page has no
+		 * use for the photo id and nothing is gained by publishing it here.
+		 */
+		hasPortrait: !!profile?.avatarPhotoId,
 		/**
 		 * A boolean, never the id or email: the footer only needs to know whether
 		 * to offer *Sign in* or *Sign out*.
