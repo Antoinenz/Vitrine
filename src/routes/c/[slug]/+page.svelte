@@ -204,6 +204,18 @@
 -->
 <header class="head" {@attach headEntrance}>
 	<h1>{c.title}</h1>
+	{#if data.isOwner}
+		<!--
+			The way through to what is left of the old panel: the photo workbench,
+			where photographs are reordered, captioned and given a cover. That moves
+			inline next; until it does, this is how the artist reaches it — and
+			without it the workbench would be unreachable except by typing a URL
+			containing a collection id that appears nowhere.
+		-->
+		<p class="owner-link">
+			<a href={resolve('/admin/collections/[id]', { id: c.id })}>Manage photos ↗</a>
+		</p>
+	{/if}
 	{#if c.description}
 		<p class="description">{c.description}</p>
 	{/if}
@@ -312,6 +324,21 @@
 		line-height: 1.65;
 		color: var(--color-ink-muted);
 		text-wrap: pretty;
+	}
+
+	.owner-link {
+		margin: 0.35rem 0 0;
+		font-size: 0.8rem;
+	}
+
+	.owner-link a {
+		color: var(--color-ink-subtle);
+		text-decoration: none;
+		border-bottom: 1px solid var(--color-hairline);
+	}
+
+	.owner-link a:hover {
+		color: var(--color-ink);
 	}
 
 	.count {

@@ -96,14 +96,29 @@ export default async function globalSetup() {
 	 */
 	const slug = 'sierra';
 
-	const created = await ctx.post('/admin/collections?/create', {
+	// Created from the artist page now — there is no separate collections screen.
+	const created = await ctx.post('/?/createCollection', {
 		form: { title: 'Sierra' },
 		maxRedirects: 0
 	});
 	const location = created.headers()['location'] ?? '';
-	const collectionId = location.split('/').pop();
+	if (location !== `/c/${slug}`) {
+		throw new Error(`Seeding failed: expected a redirect to /c/${slug}, got "${location}"`);
+	}
+
+	/**
+	 * The collection id, scraped from the owner's link to the photo workbench.
+	 *
+	 * Everything else here is addressed by slug, but the workbench is the last
+	 * piece of the old panel and is still addressed by id — an id that now
+	 * appears nowhere else, since creating redirects to the slug. When the
+	 * collection editor moves inline, this and the `?/settings` post below both
+	 * become slug-addressed and this scrape goes away.
+	 */
+	const collectionPage = await (await ctx.get(`/c/${slug}`)).text();
+	const collectionId = /\/admin\/collections\/([0-9a-f-]{36})/.exec(collectionPage)?.[1];
 	if (!collectionId) {
-		throw new Error(`Seeding failed: no collection id in redirect (${created.status()})`);
+		throw new Error('Seeding failed: no workbench link on the collection page');
 	}
 
 	for (let i = 0; i < SIZES.length; i++) {
@@ -145,7 +160,7 @@ export default async function globalSetup() {
 		maxRedirects: 0
 	});
 
-	await ctx.post('/admin/profile', {
+	await ctx.post('/?/profile', {
 		form: { displayName: 'Test Artist', bio: 'Photographs.', accentColor: '#264653' },
 		maxRedirects: 0
 	});

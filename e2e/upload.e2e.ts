@@ -72,9 +72,14 @@ async function dropFile(page: Page, name: string, base64: string, mimeType = 'im
  * anonymous artist page either.
  */
 async function newWorkbench(page: Page, title: string) {
-	await page.goto('/admin/collections');
-	await page.getByPlaceholder('New collection title').fill(title);
+	// Created from the artist page, which is the only place it can be done now.
+	await page.goto('/');
+	await page.getByRole('button', { name: 'New collection' }).click();
+	await page.getByLabel('Title').fill(title);
 	await page.getByRole('button', { name: 'Create' }).click();
+
+	// Lands on the collection, then through to the workbench.
+	await page.getByRole('link', { name: /manage photos/i }).click();
 	await expect(page.getByRole('button', { name: /upload photos/i })).toBeVisible();
 }
 

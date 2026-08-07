@@ -16,8 +16,12 @@ export type DropTarget =
 	/**
 	 * The artist page: there is no collection yet, so files are held and the
 	 * create modal opens. The redirect to the new collection flushes them.
+	 *
+	 * The callback rides on the target because the overlay is mounted in the root
+	 * layout, not by the page — there is no prop path from one to the other, and
+	 * the page is the only thing that knows how to open its own modal.
 	 */
-	| { kind: 'create' };
+	| { kind: 'create'; onHeld: (count: number) => void };
 
 const store = $state<{ current: DropTarget | null; held: File[] }>({ current: null, held: [] });
 

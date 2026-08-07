@@ -23,8 +23,6 @@
 	 * button that opens a file picker, and all dropping happens here.
 	 */
 
-	let { onCreateRequest }: { onCreateRequest?: (count: number) => void } = $props();
-
 	const target = $derived(dropTarget());
 	const active = $derived(activeCount());
 	const failed = $derived(failedItems());
@@ -81,7 +79,7 @@
 			// No collection to put them in yet: hold the files and let the page ask
 			// for a name. The redirect into the new collection flushes them.
 			const held = hold(files);
-			if (held > 0) onCreateRequest?.(held);
+			if (held > 0) target.onHeld(held);
 		}
 	}
 

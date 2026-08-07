@@ -6,9 +6,42 @@
 	import { stackHover } from '$lib/motion/stack-hover';
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
-	import type { PageData } from './$types';
+	import OwnerBar from '$lib/components/OwnerBar.svelte';
+	import CollectionCreateModal from '$lib/components/CollectionCreateModal.svelte';
+	import ProfileModal from '$lib/components/ProfileModal.svelte';
+	import { setDropTarget, heldFolderName } from '$lib/upload/target.svelte';
+	import type { ActionData, PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	let creating = $state(false);
+	let editingProfile = $state(false);
+
+	/**
+	 * A folder dropped on this page has no collection to go into, so the files
+	 * are held and the create modal opens with the folder's name already filled
+	 * in — which is almost always what the artist would have typed.
+	 */
+	let suggestedTitle = $state('');
+
+	/**
+	 * Claims window-wide drops while the artist page is open.
+	 *
+	 * `kind: 'create'` rather than a collection: the overlay holds the files and
+	 * calls back here, and the redirect into the newly created collection flushes
+	 * them. Owner only — a visitor never has the overlay mounted at all.
+	 */
+	$effect(() => {
+		if (!data.isOwner) return;
+		setDropTarget({
+			kind: 'create',
+			onHeld: () => {
+				suggestedTitle = heldFolderName() ?? '';
+				creating = true;
+			}
+		});
+		return () => setDropTarget(null);
+	});
 
 	const name = $derived(data.profile?.displayName || 'Vitrine');
 
@@ -111,6 +144,26 @@
 	{/if}
 </svelte:head>
 
+{#if data.isOwner && data.owner}
+	<OwnerBar onCreate={() => (creating = true)} onEditProfile={() => (editingProfile = true)} />
+
+	<CollectionCreateModal
+		open={creating}
+		onClose={() => (creating = false)}
+		initialTitle={suggestedTitle}
+		message={form?.scope === 'create' ? form.message : null}
+	/>
+
+	<ProfileModal
+		open={editingProfile}
+		onClose={() => (editingProfile = false)}
+		profile={data.owner.profile}
+		candidates={data.owner.candidates}
+		message={form?.scope === 'profile' ? form.message : null}
+		saved={form?.scope === 'profile' && !!form.saved}
+	/>
+{/if}
+
 {#if data.profile}
 	<header class="intro" {@attach headerEntrance}>
 		{#if data.profile.avatarPhotoId}
@@ -147,7 +200,12 @@
 {#if data.collections.length === 0}
 	<p class="empty">
 		{#if data.isOwner}
-			Nothing published yet. <a href={resolve('/admin/collections')}>Add a collection</a> to get started.
+			<!-- A button rather than a link now: creating happens in a modal on this
+			     page, so there is nowhere to navigate to. -->
+			Nothing here yet.
+			<button type="button" class="link" onclick={() => (creating = true)}>
+				Make your first collection</button
+			>, or drop a folder of photographs anywhere on this page.
 		{:else}
 			Nothing here yet.
 		{/if}
@@ -473,5 +531,17 @@
 		padding: 0 1.5rem 8rem;
 		font-size: 0.95rem;
 		color: var(--color-ink-muted);
+	}
+
+	/* A button that opens a modal, styled as the link it replaced. */
+	.link {
+		font: inherit;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--color-accent);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: pointer;
 	}
 </style>

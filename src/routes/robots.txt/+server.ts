@@ -15,6 +15,7 @@ export const GET: RequestHandler = ({ url }) => {
 		// but there is no reason for them to turn up in a search result.
 		'Disallow: /login',
 		'Disallow: /password',
+		'Disallow: /settings',
 		'',
 		`Sitemap: ${url.origin}/sitemap.xml`,
 		''
