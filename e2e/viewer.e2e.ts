@@ -291,3 +291,32 @@ test('a progress dial reports the zoom rendition arriving', async ({ page }) => 
 	await expect(dial).toHaveCount(0, { timeout: 20_000 });
 	await expect(img).toBeVisible();
 });
+
+test('clicking the dark surround closes, but not near a control', async ({ page }) => {
+	await page.setViewportSize({ width: 1200, height: 800 });
+	await page.goto('/c/sierra');
+	await page.locator('[data-photo] a').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	/**
+	 * A click just below the Close button. The controls sit *on* the backdrop, so
+	 * without a safe margin the space around them becomes a trap where a
+	 * slightly-off press does the opposite of what was intended.
+	 */
+	const close = page.getByRole('button', { name: /close/i }).first();
+	const box = (await close.boundingBox())!;
+	await page.mouse.click(box.x + box.width / 2, box.y + box.height + 12);
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	/**
+	 * Far from everything: the stage's own top-left corner. The arrows are
+	 * vertically centred and the header's controls are at the far right, so this
+	 * corner is several hundred pixels from the nearest of either.
+	 *
+	 * A first attempt clicked the middle of the left margin and did *not* close —
+	 * correctly, because that is exactly where the previous-photo arrow sits.
+	 */
+	await page.locator('.stage').click({ position: { x: 8, y: 8 } });
+	await expect(page.locator(VIEWER)).toHaveCount(0);
+	await expect(page).toHaveURL(/\/c\/sierra$/);
+});

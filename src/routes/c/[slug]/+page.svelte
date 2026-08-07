@@ -6,6 +6,7 @@
 	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
+	import { prefersReducedMotion } from '$lib/motion/gsap';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -86,9 +87,17 @@
 		 */
 		requestAnimationFrame(() => {
 			requestAnimationFrame(() => {
-				gridEl
-					?.querySelectorAll('[data-photo]')
-					[index]?.scrollIntoView({ block: 'center', behavior: 'auto' });
+				gridEl?.querySelectorAll('[data-photo]')[index]?.scrollIntoView({
+					block: 'center',
+					/*
+					 * Glides rather than jumping. Closing the viewer already replaces
+					 * the whole screen; teleporting the page underneath at the same
+					 * moment leaves no clue that the grid moved at all, so a visitor
+					 * deep in a long collection cannot tell where they have landed.
+					 * Watching it travel is what makes the position legible.
+					 */
+					behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+				});
 			});
 		});
 	});

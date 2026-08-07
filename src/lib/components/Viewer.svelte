@@ -334,13 +334,101 @@
 	});
 
 	/**
+	 * How far a click must be from any control before it counts as "the dark
+	 * area". Roughly a fingertip, so a near-miss on Close or an arrow reads as a
+	 * missed press rather than an instruction to dismiss.
+	 */
+	const CONTROL_SAFE_PX = 44;
+
+	/**
+	 * Dismisses on a click into the surround.
+	 *
+	 * Two guards, for two different mistakes. The photograph itself never
+	 * dismisses, or zooming in and clicking to look closer would throw you out.
+	 * And a click landing near a control doesn't either: the buttons sit *on* the
+	 * dark area, so without a margin the space immediately around Close and the
+	 * arrows becomes a trap where a slightly-off press does the opposite of what
+	 * was intended.
+	 */
+	function onBackdropClick(event: MouseEvent) {
+		if (zoomed) return;
+
+		/**
+		 * A click counts as "the surround" if it landed on the backdrop element —
+		 * or on the image element but *outside the picture itself*.
+		 *
+		 * That second case is not a nicety. The `<img>` box fills the stage while
+		 * `object-fit: contain` letterboxes the photograph inside it, so the bands
+		 * of dark either side of a portrait frame are still the image element.
+		 * Testing the element alone meant most of what looks like empty space did
+		 * nothing at all.
+		 */
+		const onBackdrop = event.target === event.currentTarget;
+		const onLetterbox = event.target === imageEl && !withinPicture(event.clientX, event.clientY);
+		if (!onBackdrop && !onLetterbox) return;
+
+		if (nearAControl(event.clientX, event.clientY)) return;
+		animateClose();
+	}
+
+	/**
+	 * Whether a point is over the photograph as drawn, rather than merely over the
+	 * element that holds it.
+	 *
+	 * Recreates what `object-fit: contain` does: scale to fit, centre the result,
+	 * and leave the rest empty.
+	 */
+	function withinPicture(x: number, y: number): boolean {
+		if (!imageEl?.naturalWidth || !imageEl.naturalHeight) return true;
+
+		const box = imageEl.getBoundingClientRect();
+		const scale = Math.min(box.width / imageEl.naturalWidth, box.height / imageEl.naturalHeight);
+		const width = imageEl.naturalWidth * scale;
+		const height = imageEl.naturalHeight * scale;
+		const left = box.left + (box.width - width) / 2;
+		const top = box.top + (box.height - height) / 2;
+
+		return x >= left && x <= left + width && y >= top && y <= top + height;
+	}
+
+	function nearAControl(x: number, y: number): boolean {
+		const controls = containerEl?.querySelectorAll<HTMLElement>('button, a');
+		if (!controls) return false;
+
+		for (const control of controls) {
+			const rect = control.getBoundingClientRect();
+			if (rect.width === 0 || rect.height === 0) continue;
+
+			// Distance from the point to the rectangle, zero when inside it.
+			const dx = Math.max(rect.left - x, 0, x - rect.right);
+			const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+			if (Math.hypot(dx, dy) < CONTROL_SAFE_PX) return true;
+		}
+		return false;
+	}
+
+	/**
 	 * Plays the close animation, then hands back to the caller.
 	 *
 	 * The overlay is unmounted by the parent when the URL changes, so the
 	 * animation has to finish first — calling `onClose` immediately would remove
 	 * the element mid-tween.
 	 */
+	let closing = false;
+
 	function animateClose() {
+		/**
+		 * Once only. `onClose` is `history.back()`, so a second call goes back
+		 * *twice* — past the collection and out of the site.
+		 *
+		 * There are several ways to arrive here at once: the handler is bound to
+		 * both the backdrop and the stage, so a click in the letterbox around the
+		 * photograph is seen by each of them in turn; and Escape, a double click,
+		 * or an impatient second click can all overlap the close animation.
+		 */
+		if (closing) return;
+		closing = true;
+
 		if (prefersReducedMotion() || !containerEl) {
 			onClose();
 			return;
@@ -534,12 +622,20 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+<!--
+	The backdrop dismisses on click. Its keyboard equivalent is Escape, already
+	bound on the window above — a dialog's documented way out — so a keydown
+	handler here would be a second, worse route to the same place on an element
+	that is not focusable in the first place.
+-->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
 	class="viewer"
 	role="dialog"
 	aria-modal="true"
 	aria-label="{collectionTitle} — photograph {index + 1} of {photos.length}"
 	tabindex="-1"
+	onclick={onBackdropClick}
 	bind:this={containerEl}
 >
 	<header>
@@ -597,11 +693,7 @@
 			swipeStart = null;
 		}}
 		ondblclick={(e) => (zoomed ? resetZoom() : zoomAt(2.5, e.clientX, e.clientY))}
-		onclick={(e) => {
-			// Clicking the surround dismisses; clicking the photograph itself must
-			// not, or zooming would be impossible.
-			if (e.target === e.currentTarget && !zoomed) animateClose();
-		}}
+		onclick={onBackdropClick}
 	>
 		<img
 			bind:this={imageEl}
