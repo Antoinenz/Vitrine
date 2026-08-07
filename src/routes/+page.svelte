@@ -173,6 +173,7 @@
 				alt={name}
 				width="72"
 				height="72"
+				decoding="async"
 			/>
 		{/if}
 
@@ -246,7 +247,7 @@
 							and returns without binding, so an empty tile is simply inert.
 						-->
 						{#if collection.stack.length === 0}
-							<div class="placeholder">
+							<div class="placeholder" class:working={collection.pendingCount > 0}>
 								{#if collection.failedCount > 0}
 									{collection.failedCount} failed
 								{:else if collection.pendingCount > 0}
@@ -512,6 +513,35 @@
 		border: 1px dashed var(--color-hairline);
 		color: var(--color-ink-subtle);
 		font-size: 0.8rem;
+	}
+
+	/*
+	 * Only while photographs are actually being processed — not for an empty
+	 * collection, and not for a failed one. A pulse means "still working"; on a
+	 * tile that is simply empty it would promise something is coming when nothing
+	 * is, and on a failure it would be actively misleading.
+	 *
+	 * Opacity alone, so it composites without touching layout — this sits inside
+	 * `.stack`, whose rectangle the transition measures.
+	 */
+	.working {
+		animation: pulse 1.8s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.55;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.working {
+			animation: none;
+		}
 	}
 
 	.tag {

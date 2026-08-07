@@ -98,8 +98,14 @@
 </svelte:head>
 
 <nav class="crumbs">
-	<a href={resolve('/admin/collections')}>Collections</a> <span>/</span>
-	{c.title}
+	<!--
+		Back to the collection, not to a list — the list is gone, and this is where
+		the artist came from. `resolve()` did not catch the stale link when
+		`/admin/collections` was deleted, presumably because the directory survives
+		to hold `[id]`, so the typed-route safety net does not cover this case.
+	-->
+	<a href={resolve('/c/[slug]', { slug: c.slug })}>{c.title}</a> <span>/</span>
+	Photos
 </nav>
 
 <header class="head">
@@ -166,6 +172,7 @@
 								src="/i/{photo.id}/320.webp"
 								alt={photo.altText || photo.originalName}
 								loading="lazy"
+								decoding="async"
 							/>
 						{:else if photo.status === 'failed'}
 							<span class="state failed">Failed</span>

@@ -111,8 +111,8 @@ export function stackHover(node: HTMLElement) {
 	 * CSS custom properties the server derived from the photo id so the motion is
 	 * stable across reloads.
 	 *
-	 * Nothing else writes `rotation` any more, so it simply runs continuously —
-	 * it only needs pausing before the transition measures the stack.
+	 * Nothing else writes `rotation`, so these run on their own; what they need
+	 * is to *stop* when there is no reason to run. See `syncDrift` below.
 	 */
 	const drifts = cards.map((card) => {
 		const style = getComputedStyle(card.parentElement ?? card);
@@ -127,6 +127,47 @@ export function stackHover(node: HTMLElement) {
 			yoyo: true
 		});
 	});
+
+	/**
+	 * The sway only runs when the stack is on screen and nothing has suspended it.
+	 *
+	 * Every card of every stack was tweening `rotation` forever, whether or not
+	 * it was anywhere near the viewport. On an artist page with a dozen
+	 * collections that is around fifty infinite tweens writing transforms on
+	 * every frame — enough continuous main-thread and compositor work to show up
+	 * as stutter in anything else that animates, including the stack→grid
+	 * transition it is meant to complement.
+	 *
+	 * Two independent reasons to stop, tracked separately so neither can undo the
+	 * other: scrolled out of view, and suspended for a measurement.
+	 */
+	let onScreen = false;
+	let suspended = false;
+
+	function syncDrift() {
+		const shouldRun = onScreen && !suspended;
+		for (const drift of drifts) {
+			if (shouldRun) drift.resume();
+			else drift.pause();
+		}
+	}
+
+	// Starts paused: `observe` fires immediately with the real answer, so a stack
+	// below the fold never runs even for a frame.
+	for (const drift of drifts) drift.pause();
+
+	const observer = new IntersectionObserver(
+		(entries) => {
+			for (const entry of entries) {
+				onScreen = entry.isIntersecting;
+			}
+			syncDrift();
+		},
+		// A generous margin, so a stack is already swaying by the time it is
+		// actually looked at rather than starting the moment it appears.
+		{ rootMargin: '200px' }
+	);
+	observer.observe(node);
 
 	function onMove(event: PointerEvent) {
 		const rect = node.getBoundingClientRect();
@@ -197,7 +238,11 @@ export function stackHover(node: HTMLElement) {
 
 	const handle: StackHoverHandle = {
 		resetTilt() {
-			for (const drift of drifts) drift.pause();
+			// Suspended rather than merely paused: the stack is about to be
+			// measured for the transition, and an intersection callback arriving
+			// mid-measurement must not start it swaying again.
+			suspended = true;
+			syncDrift();
 			gsap.set(node, { rotationX: 0, rotationY: 0 });
 			gsap.set(cards, { x: 0, y: 0, z: 0, rotation: 0 });
 		},
@@ -205,6 +250,7 @@ export function stackHover(node: HTMLElement) {
 			node.removeEventListener('pointermove', onMove);
 			node.removeEventListener('pointerenter', onEnter);
 			node.removeEventListener('pointerleave', onLeave);
+			observer.disconnect();
 			for (const drift of drifts) drift.kill();
 			gsap.killTweensOf([node, ...cards]);
 			handles.delete(node);
