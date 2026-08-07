@@ -1,3 +1,5 @@
+import { slide } from 'svelte/transition';
+import { quartOut } from 'svelte/easing';
 import { gsap, prefersReducedMotion, MOTION } from './gsap';
 
 /**
@@ -75,4 +77,30 @@ export function entrance(options: EntranceOptions = {}) {
 			tween.kill();
 		};
 	};
+}
+
+/**
+ * The viewer's details panel, opening and closing.
+ *
+ * This is the one piece of motion here that isn't GSAP, on purpose. Everything
+ * else in `src/lib/motion` animates elements that stay in the DOM, which is
+ * what GSAP is good at. This panel is *removed* when it closes, and animating
+ * something out of existence with GSAP means keeping it mounted by hand and
+ * tearing it down in a completion callback — reimplementing, badly, what
+ * Svelte's outro already does. So the mechanism is Svelte's and only the timing
+ * is ours.
+ *
+ * `quartOut` is the easing curve GSAP calls `power3.out`, so the panel moves in
+ * the same language as the stacks and the grid despite the different engine.
+ *
+ * It slides rather than fades because the panel takes up room: appearing at
+ * full height would shove the photograph upward in a single frame, which is far
+ * more distracting than the panel itself.
+ */
+export function detailPanel(node: Element) {
+	// Zero duration rather than no transition at all: Svelte still needs a
+	// transition object back, and this keeps the open/close instant.
+	if (prefersReducedMotion()) return { duration: 0 };
+
+	return slide(node, { duration: MOTION.hover * 1000, easing: quartOut });
 }
