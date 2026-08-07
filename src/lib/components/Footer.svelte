@@ -78,6 +78,9 @@
 			<a class="powered" href="https://github.com/Antoinenz/vitrine" rel="noopener">Vitrine</a>
 
 			{#if isOwner}
+				<!-- Settings live here because what they edit is here: the footer's
+				     note, its links, and the legal pages it advertises. -->
+				<a href={resolve('/settings')}>Site settings</a>
 				<!-- POST, so no page can sign the artist out with an <img> tag. -->
 				<form method="POST" action="/logout">
 					<button type="submit">Sign out</button>
