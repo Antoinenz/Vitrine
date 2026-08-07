@@ -58,6 +58,45 @@ html {
 	font-family: var(--font-sans);
 	/* Anchor scrolling shouldn't jump under a sticky header. */
 	scroll-padding-block-start: 5rem;
+
+	/**
+	 * Always leave room for the scrollbar, whether or not the page needs one.
+	 *
+	 * This is a correctness fix, not a cosmetic one. Without it the viewport is
+	 * ~15px narrower on a long page than on a short one, so navigating between
+	 * two pages of different heights changes the width of everything — and the
+	 * stack→grid transition measures rectangles on one page and animates to them
+	 * on the other. Every photograph landed slightly off, and the whole layout
+	 * twitched sideways at the moment of navigation.
+	 */
+	scrollbar-gutter: stable;
+
+	/* Firefox. The colours are the same hairline and surface used everywhere. */
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-hairline) transparent;
+}
+
+/**
+ * WebKit's equivalent. Deliberately understated: a gallery's furniture should
+ * not compete with the photographs.
+ */
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background-color: var(--color-hairline);
+	border: 3px solid var(--color-surface);
+	border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background-color: var(--color-ink-subtle);
 }
 
 body {

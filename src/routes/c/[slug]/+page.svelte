@@ -6,6 +6,8 @@
 	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
+	import { prefersReducedMotion } from '$lib/motion/gsap';
+	import { capturePhotoOrigin, cancelPhotoOrigin } from '$lib/motion/photo-open';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -23,6 +25,14 @@
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 		event.preventDefault();
 
+		/**
+		 * Where this photograph sits right now, so the viewer can fly it in from
+		 * here rather than cutting to it. Captured before the await: `preloadData`
+		 * can take long enough for a scroll to move the grid underneath.
+		 */
+		const frame = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('.frame');
+		if (frame) capturePhotoOrigin(frame);
+
 		const href = resolve('/c/[slug]/[photoId]', {
 			slug: data.collection.slug,
 			photoId: data.photos[index].id
@@ -34,6 +44,9 @@
 		if (result.type === 'loaded' && result.status === 200) {
 			pushState(href, { photo: { id: data.photos[index].id, index } });
 		} else {
+			// A full navigation rebuilds the page, so the captured rectangle belongs
+			// to a grid that no longer exists.
+			cancelPhotoOrigin();
 			await goto(href);
 		}
 	}
@@ -86,9 +99,17 @@
 		 */
 		requestAnimationFrame(() => {
 			requestAnimationFrame(() => {
-				gridEl
-					?.querySelectorAll('[data-photo]')
-					[index]?.scrollIntoView({ block: 'center', behavior: 'auto' });
+				gridEl?.querySelectorAll('[data-photo]')[index]?.scrollIntoView({
+					block: 'center',
+					/*
+					 * Glides rather than jumping. Closing the viewer already replaces
+					 * the whole screen; teleporting the page underneath at the same
+					 * moment leaves no clue that the grid moved at all, so a visitor
+					 * deep in a long collection cannot tell where they have landed.
+					 * Watching it travel is what makes the position legible.
+					 */
+					behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+				});
 			});
 		});
 	});
@@ -146,6 +167,34 @@
 	 */
 	const headEntrance = entrance({ stagger: '.head > *' });
 
+	/**
+	 * Whether the page has scrolled past its own header.
+	 *
+	 * Drives the slim bar that takes the header's place, so the collection's name
+	 * and the way back are still there deep into a long scroll — which is exactly
+	 * where a visitor is most likely to have forgotten both.
+	 */
+	let pastHeader = $state(false);
+
+	/**
+	 * An IntersectionObserver on the header rather than a scroll listener.
+	 *
+	 * A scroll handler runs on every frame of every scroll and would have to read
+	 * `getBoundingClientRect`, forcing layout each time. This fires twice: once
+	 * when the header leaves, once when it comes back.
+	 */
+	function headerWatch(node: HTMLElement) {
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				pastHeader = !entry.isIntersecting;
+			},
+			// Swaps over as the header's last line clears the top of the window.
+			{ threshold: 0, rootMargin: '0px' }
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}
+
 	let revealedFor: string | null = null;
 
 	$effect(() => {
@@ -202,7 +251,25 @@
 	settles above them, and holding the title back until the flight finished
 	would leave the page headless for the most conspicuous half-second it has.
 -->
-<header class="head" {@attach headEntrance}>
+<!--
+	The header's stand-in once it has scrolled away.
+
+	`position: fixed`, deliberately, not `sticky`: a sticky element participates
+	in layout and would sit inside the flow the stack→grid transition measures.
+	Fixed takes it out entirely, so the rectangles the animation was captured
+	against are unchanged.
+
+	`aria-hidden` while it is off screen, so a screen reader doesn't meet the
+	collection's name and a second back link that a sighted visitor cannot see.
+-->
+<div class="topbar" class:shown={pastHeader} aria-hidden={!pastHeader}>
+	<a class="topbar-back" href={resolve('/')} tabindex={pastHeader ? 0 : -1}>
+		<span aria-hidden="true">←</span> Back
+	</a>
+	<span class="topbar-title">{c.title}</span>
+</div>
+
+<header class="head" {@attach headEntrance} {@attach headerWatch}>
 	<h1>{c.title}</h1>
 	{#if data.isOwner}
 		<!--
@@ -326,6 +393,65 @@
 		text-wrap: pretty;
 	}
 
+	.topbar {
+		position: fixed;
+		inset: 0 0 auto;
+		z-index: 40;
+		display: grid;
+		/* Three tracks with equal outer ones, so the title is centred against the
+		   window rather than against whatever the back link happens to measure. */
+		grid-template-columns: 1fr auto 1fr;
+		align-items: center;
+		gap: 1rem;
+		padding: 0.7rem 1.5rem;
+		background: var(--color-surface-raised);
+		border-bottom: 1px solid var(--color-hairline);
+
+		/* Out of the way, and untouchable, until it is wanted. */
+		opacity: 0;
+		transform: translateY(-100%);
+		pointer-events: none;
+		transition:
+			opacity 220ms var(--ease-out-soft),
+			transform 220ms var(--ease-out-soft);
+	}
+
+	.topbar.shown {
+		opacity: 1;
+		transform: none;
+		pointer-events: auto;
+	}
+
+	.topbar-title {
+		grid-column: 2;
+		font-size: 0.9rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		/* A long title truncates rather than pushing the bar taller mid-scroll. */
+		max-width: 60vw;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.topbar-back {
+		grid-column: 1;
+		justify-self: start;
+		font-size: 0.85rem;
+		color: var(--color-ink-muted);
+		text-decoration: none;
+	}
+
+	.topbar-back:hover {
+		color: var(--color-ink);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.topbar {
+			transition: none;
+		}
+	}
+
 	.owner-link {
 		margin: 0.35rem 0 0;
 		font-size: 0.8rem;
@@ -375,7 +501,14 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
 		gap: 2.5rem 2rem;
-		align-items: start;
+		/*
+		 * Photographs in a row sit centred against each other rather than hanging
+		 * from the top. Every cell keeps its own aspect ratio, so a landscape frame
+		 * beside a portrait one left a ragged top edge and a large void beneath the
+		 * short one; centring shares that space and the row reads as one line of
+		 * prints.
+		 */
+		align-items: center;
 	}
 
 	figure {
