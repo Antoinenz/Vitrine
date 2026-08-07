@@ -174,6 +174,60 @@
 	 */
 	let zoomProgress = $state<number | null>(null);
 
+	/**
+	 * Whether the wait has gone on long enough to be worth reporting. See the
+	 * timer below.
+	 */
+	let zoomIndicatorDue = $state(false);
+	const ZOOM_INDICATOR_DELAY_MS = 500;
+
+	/**
+	 * Where the dial sits, in pixels from the stage's bottom-right corner.
+	 *
+	 * Pinned to the photograph rather than to the window. A letterboxed frame
+	 * leaves wide empty margins, and an indicator floating out in that dead space
+	 * looks like it belongs to the page rather than to the picture that is
+	 * loading.
+	 */
+	let dialInset = $state({ right: 20, bottom: 20 });
+
+	const DIAL_MARGIN = 12;
+
+	function measureDial() {
+		if (!imageEl || !stageEl || !imageEl.naturalWidth) return;
+
+		const box = imageEl.getBoundingClientRect();
+		const stage = stageEl.getBoundingClientRect();
+
+		/**
+		 * `getBoundingClientRect` already includes the zoom transform, so this is
+		 * the picture as it currently appears, not as it would appear unzoomed.
+		 */
+		const fit = Math.min(box.width / imageEl.naturalWidth, box.height / imageEl.naturalHeight);
+		const drawnWidth = imageEl.naturalWidth * fit;
+		const drawnHeight = imageEl.naturalHeight * fit;
+
+		const pictureRight = box.left + (box.width + drawnWidth) / 2;
+		const pictureBottom = box.top + (box.height + drawnHeight) / 2;
+
+		/**
+		 * Clamped to the stage. A zoomed photograph overflows its container, and
+		 * its true corner is somewhere off screen — following it there would put
+		 * the dial where nobody could see it.
+		 */
+		dialInset = {
+			right: Math.max(DIAL_MARGIN, stage.right - pictureRight + DIAL_MARGIN),
+			bottom: Math.max(DIAL_MARGIN, stage.bottom - pictureBottom + DIAL_MARGIN)
+		};
+	}
+
+	$effect(() => {
+		if (!zoomIndicatorDue) return;
+		measureDial();
+		window.addEventListener('resize', measureDial);
+		return () => window.removeEventListener('resize', measureDial);
+	});
+
 	/** The blob URL currently on screen, if any, so it can be revoked. */
 	let zoomObjectUrl: string | null = null;
 
@@ -198,6 +252,7 @@
 			shownId = wantedId;
 			releaseZoomUrl();
 			zoomProgress = null;
+			zoomIndicatorDue = false;
 			displaySrc = wanted;
 			loadState = 'loading';
 			// A cached image can already be complete by the time this runs, in
@@ -220,12 +275,14 @@
 		 */
 		if (!zoomed) {
 			zoomProgress = null;
+			zoomIndicatorDue = false;
 			displaySrc = wanted;
 			releaseZoomUrl();
 			return;
 		}
 
 		let cancelled = false;
+		zoomIndicatorDue = false;
 
 		/**
 		 * Fetched rather than assigned to an Image, so the progress is real.
@@ -236,6 +293,17 @@
 		 * worse than none, because it stops meaning anything.
 		 */
 		zoomProgress = 0;
+
+		/**
+		 * Held back briefly. A zoom rendition already in cache arrives in a few
+		 * milliseconds, and flashing a dial for one frame on every zoom is worse
+		 * than showing nothing — it reads as a glitch. The indicator is for the
+		 * case where the wait is long enough to wonder whether anything happened.
+		 */
+		const showTimer = setTimeout(() => {
+			if (!cancelled) zoomIndicatorDue = true;
+		}, ZOOM_INDICATOR_DELAY_MS);
+
 		void (async () => {
 			try {
 				const response = await fetch(wanted);
@@ -286,6 +354,7 @@
 
 		return () => {
 			cancelled = true;
+			clearTimeout(showTimer);
 		};
 	});
 
@@ -731,7 +800,9 @@
 			src={displaySrc}
 			alt={photo.alt}
 			decoding="async"
-			style:transform="translate3d({panX}px, {panY}px, 0) scale({zoom})"
+			style:--pan-x="{panX}px"
+			style:--pan-y="{panY}px"
+			style:--zoom={zoom}
 			style:visibility={loadState === 'ready' ? 'visible' : 'hidden'}
 			draggable="false"
 			onload={() => (loadState = 'ready')}
@@ -747,10 +818,12 @@
 			the fetch above — because a dial that eases to 90% and waits teaches
 			people to ignore dials.
 		-->
-		{#if zoomProgress !== null && zoomProgress < 1}
+		{#if zoomIndicatorDue && zoomProgress !== null && zoomProgress < 1}
 			<div
 				class="zoom-progress"
 				style:--progress="{Math.round(zoomProgress * 100)}%"
+				style:right="{dialInset.right}px"
+				style:bottom="{dialInset.bottom}px"
 				role="progressbar"
 				aria-label="Loading full resolution"
 				aria-valuenow={Math.round(zoomProgress * 100)}
@@ -922,6 +995,20 @@
 
 	.stage img {
 		/*
+		 * Composed from custom properties rather than written as `transform`
+		 * directly, so Svelte and GSAP never write the same property.
+		 *
+		 * They used to. The open flight tweens this element's `transform` while
+		 * Svelte re-applied its own on every render — and a render happens mid
+		 * flight, when the image finishes loading and `loadState` flips. Svelte's
+		 * value clobbered the tween's, GSAP carried on from its own internal
+		 * state, and the photograph appeared to start its arrival a second time.
+		 * Setting variables leaves `transform` free for GSAP to own outright while
+		 * it animates, and `clearProps` hands it back to this rule afterwards.
+		 */
+		transform: translate3d(var(--pan-x, 0px), var(--pan-y, 0px), 0) scale(var(--zoom, 1));
+
+		/*
 		 * The element fills the stage and the photograph is letterboxed inside it
 		 * by `object-fit: contain`, rather than the element being sized from the
 		 * photograph's own dimensions.
@@ -939,11 +1026,28 @@
 		height: 100%;
 		object-fit: contain;
 		user-select: none;
-		/* No transition while dragging — panning must track the pointer exactly. */
+		/*
+		 * Eases the jump between zoom steps. Anything else that drives `transform`
+		 * frame by frame must switch this off first — see below.
+		 */
 		transition: transform 180ms var(--ease-out-soft);
 	}
 
-	.stage.dragging img {
+	/*
+	 * Panning must track the pointer exactly, and the opening flight is animated
+	 * by GSAP a frame at a time.
+	 *
+	 * That second case was a real bug rather than a precaution. GSAP wrote a new
+	 * transform every frame and this rule tried to ease 180ms toward each one in
+	 * turn, so the rendered position lagged far behind the values being set and
+	 * the photograph appeared to arrive, stall, and set off again — the flight
+	 * looked as though it played twice.
+	 */
+	.stage.dragging img,
+	/* `:global`, because `flying` is added by the animation module at runtime and
+	   Svelte prunes scoped selectors it cannot find in the markup. Still confined
+	   to this component by the `.stage img` part of the selector. */
+	.stage img:global(.flying) {
 		transition: none;
 	}
 
@@ -1079,9 +1183,19 @@
 		 * step. With the padding, every thumbnail can be brought to the centre,
 		 * and the marker becomes a fixed point the photographs pass through.
 		 */
-		padding: 1rem 50%;
-		scrollbar-width: thin;
-		scrollbar-color: #3a3634 transparent;
+		padding: var(--strip-pad) 50%;
+
+		/*
+		 * No visible scrollbar. The half-width padding means the strip *always*
+		 * overflows, so a bar would be permanently on screen under the
+		 * thumbnails — and it is not the way this is driven anyway: clicking a
+		 * chip, the arrow keys and the wheel all still work.
+		 */
+		scrollbar-width: none;
+	}
+
+	.filmstrip::-webkit-scrollbar {
+		display: none;
 	}
 
 	/*
@@ -1093,13 +1207,26 @@
 	 */
 	.filmstrip-window {
 		position: relative;
+		/*
+		 * One source of truth for the chip height, shared by the thumbnails and by
+		 * the marker that frames them. They were set independently and the marker
+		 * was sized from the container instead, which is what let them drift.
+		 */
+		--thumb-height: 3.25rem;
+		--strip-pad: 1rem;
 	}
 
 	.filmstrip-window::after {
 		content: '';
 		position: absolute;
-		top: 1rem;
-		bottom: 1rem;
+		/*
+		 * Anchored to the top and given the thumbnails' exact height, rather than
+		 * inset from both edges. `bottom` measured against the container, which
+		 * includes the horizontal scrollbar — so the marker hung a scrollbar's
+		 * worth of empty space below the photographs it was supposed to frame.
+		 */
+		top: var(--strip-pad);
+		height: var(--thumb-height);
 		left: 50%;
 		translate: -50% 0;
 		width: var(--marker-width, 4.5rem);
@@ -1118,7 +1245,7 @@
 		 * one 3:2 box and cropped to fit, which made a strip of portraits
 		 * indistinguishable from each other.
 		 */
-		height: 3.25rem;
+		height: var(--thumb-height);
 		width: auto;
 		padding: 0;
 		border: 0;
@@ -1153,8 +1280,7 @@
 	 */
 	.zoom-progress {
 		position: absolute;
-		left: 1.25rem;
-		bottom: 1.25rem;
+		/* `right` and `bottom` are set inline, from the picture's own corner. */
 		width: 2rem;
 		height: 2rem;
 		border-radius: 50%;

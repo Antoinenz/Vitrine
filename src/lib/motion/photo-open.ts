@@ -82,6 +82,16 @@ export function playPhotoOpen(imageEl: HTMLImageElement): boolean {
 	const dx = from.left + from.width / 2 - (box.left + box.width / 2);
 	const dy = from.top + from.height / 2 - (box.top + box.height / 2);
 
+	/**
+	 * Suppresses the stylesheet's `transition: transform` for the duration.
+	 *
+	 * Without it the transition eases 180ms toward every value GSAP writes, so
+	 * what renders lags far behind what is set and the arrival appears to happen
+	 * twice. Two things animating one property is always a bug; here the CSS
+	 * simply has to stand down while the tween owns it.
+	 */
+	imageEl.classList.add('flying');
+
 	gsap.fromTo(
 		imageEl,
 		{ x: dx, y: dy, scale },
@@ -96,7 +106,8 @@ export function playPhotoOpen(imageEl: HTMLImageElement): boolean {
 			 * otherwise written by Svelte for zoom and pan, and a leftover inline
 			 * transform from GSAP would win over the first zoom the visitor tried.
 			 */
-			clearProps: 'transform'
+			clearProps: 'transform',
+			onComplete: () => imageEl.classList.remove('flying')
 		}
 	);
 

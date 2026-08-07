@@ -368,3 +368,63 @@ test('opening a photograph brings it in from its place in the grid', async ({ pa
 		)
 		.toBe(true);
 });
+
+test('the opening flight runs once, without restarting', async ({ page }) => {
+	await page.setViewportSize({ width: 1200, height: 800 });
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+
+	/**
+	 * Samples the rendered scale every frame.
+	 *
+	 * The flight grows the photograph from its size in the grid up to full size,
+	 * so the scale should rise and never fall. It used to fall partway through
+	 * and climb again, which read as the animation playing twice: a CSS
+	 * `transition: transform` on the image was easing 180ms toward every value
+	 * GSAP wrote, so what rendered lagged far behind what was set.
+	 *
+	 * Reading the *computed* transform rather than the inline one is the whole
+	 * point — the inline values were always correct, and only the rendered result
+	 * showed the fault.
+	 */
+	await page.evaluate(() => {
+		const w = window as Window & { __gaps?: number[]; __scales?: number[]; __raf?: number };
+		w.__gaps = [];
+		w.__scales = [];
+		const tick = () => {
+			const img = document.querySelector('[role="dialog"] img') as HTMLElement | null;
+			if (img && img.style.transform) {
+				const set = new DOMMatrix(img.style.transform).a;
+				const rendered = new DOMMatrix(getComputedStyle(img).transform).a;
+				w.__scales!.push(rendered);
+				w.__gaps!.push(Math.abs(set - rendered));
+			}
+			w.__raf = requestAnimationFrame(tick);
+		};
+		tick();
+	});
+
+	await page.locator('[data-photo] a').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+	await page.waitForTimeout(1500);
+
+	const { scales, gaps } = await page.evaluate(() => {
+		const w = window as Window & { __gaps?: number[]; __scales?: number[]; __raf?: number };
+		cancelAnimationFrame(w.__raf!);
+		return { scales: w.__scales ?? [], gaps: w.__gaps ?? [] };
+	});
+
+	// It really did animate, rather than never starting at all.
+	expect(scales.length).toBeGreaterThan(2);
+	expect(Math.min(...scales)).toBeLessThan(0.9);
+
+	/**
+	 * The assertion that matters: what renders must match what GSAP set.
+	 *
+	 * The inline values were always correct — only the rendered result was wrong,
+	 * because a CSS `transition: transform` was easing 180ms toward each new
+	 * value. Comparing the two directly is what pins that down; comparing frames
+	 * to each other does not, since a lagged curve can still be monotonic.
+	 */
+	expect(Math.max(...gaps)).toBeLessThan(0.05);
+});
