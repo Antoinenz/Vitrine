@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { gsap, prefersReducedMotion, MOTION } from '$lib/motion/gsap';
 	import { detailPanel } from '$lib/motion/entrance';
@@ -142,14 +142,70 @@
 	 */
 	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
 
+	/**
+	 * The source actually on screen, which is not always the one wanted.
+	 *
+	 * Zooming swaps `fullSrc` to a much larger rendition of the *same*
+	 * photograph. Binding the element straight to `fullSrc` meant the image was
+	 * hidden and a spinner shown while those bytes arrived — so the photograph
+	 * vanished at the exact moment the visitor leaned in to look at it, then
+	 * reappeared. Now the picture already on screen stays, scaled and soft, and
+	 * is replaced only once the sharper file is decoded and can be swapped in the
+	 * same frame.
+	 *
+	 * Seeded with the real source rather than left empty, and `untrack` says so
+	 * deliberately: effects don't run on the server, so an empty initial value
+	 * would server-render `<img src="">` — and this component *is* server-rendered
+	 * for a cold-opened `/c/[slug]/[photoId]` link, which is the one case where
+	 * the markup has to carry the photograph on its own.
+	 */
+	let displaySrc = $state(untrack(() => photo.src));
+
+	/**
+	 * Which photograph `displaySrc` belongs to. A plain `let`, not `$state`: the
+	 * effect below both reads and writes it, and reactive state there would loop.
+	 */
+	let shownId = untrack(() => photo.id);
+
 	$effect(() => {
-		void fullSrc;
-		loadState = 'loading';
-		// A cached image can already be complete by the time this runs, in which
-		// case no load event will ever fire.
-		if (imageEl?.complete) {
-			loadState = imageEl.naturalWidth > 0 ? 'ready' : 'error';
+		const wanted = fullSrc;
+		const wantedId = photo.id;
+
+		/**
+		 * A different photograph. There is nothing valid on screen to keep, so the
+		 * spinner is honest here — swap immediately and wait.
+		 */
+		if (wantedId !== shownId) {
+			shownId = wantedId;
+			displaySrc = wanted;
+			loadState = 'loading';
+			// A cached image can already be complete by the time this runs, in
+			// which case no load event will ever fire.
+			if (imageEl?.complete && imageEl.currentSrc.endsWith(wanted)) {
+				loadState = imageEl.naturalWidth > 0 ? 'ready' : 'error';
+			}
+			return;
 		}
+
+		// Same photograph, finer rendition: fetch it out of sight and only then
+		// put it on screen.
+		if (wanted === untrack(() => displaySrc)) return;
+
+		let cancelled = false;
+		const preload = new Image();
+		preload.src = wanted;
+		void preload
+			.decode()
+			.then(() => {
+				if (!cancelled) displaySrc = wanted;
+			})
+			// A zoom rendition that fails to load is not worth surfacing: the
+			// visitor keeps the photograph they already had.
+			.catch(() => {});
+
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	/** Which way the last step went, so the arrival slides in from the far side. */
@@ -438,8 +494,9 @@
 	>
 		<img
 			bind:this={imageEl}
-			src={fullSrc}
+			src={displaySrc}
 			alt={photo.alt}
+			decoding="async"
 			style:transform="translate3d({panX}px, {panY}px, 0) scale({zoom})"
 			style:visibility={loadState === 'ready' ? 'visible' : 'hidden'}
 			draggable="false"

@@ -168,3 +168,38 @@ test('the details panel opens and closes', async ({ page }) => {
 	// assertion is that it goes, not that it went in the same frame.
 	await expect(page.locator(`${VIEWER} dl`)).toHaveCount(0);
 });
+
+test('zooming keeps the photograph on screen while the sharper file loads', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+	await page.locator('[data-photo] a').first().click();
+
+	const img = page.locator(`${VIEWER} img`).first();
+	await expect(img).toBeVisible();
+	const before = await img.getAttribute('src');
+
+	/**
+	 * Slow every rendition request from here on. The zoom source is the only
+	 * image the page still wants, and without this delay it arrives from cache
+	 * fast enough that the regression would hide behind a passing test.
+	 */
+	await page.route('**/i/**', async (route) => {
+		await new Promise((r) => setTimeout(r, 1500));
+		await route.continue();
+	});
+
+	await img.dblclick();
+
+	/**
+	 * The bug this pins: the element was bound straight to the zoom source, so it
+	 * was hidden behind a spinner until those bytes landed — the photograph
+	 * disappeared at the exact moment someone leaned in to look at it. It must
+	 * stay on screen, showing the rendition it already had.
+	 */
+	await expect(img).toBeVisible();
+	expect(await img.getAttribute('src')).toBe(before);
+
+	// And it does eventually sharpen, rather than being stuck on the preview.
+	await expect(img).not.toHaveAttribute('src', before ?? '', { timeout: 15_000 });
+	await expect(img).toBeVisible();
+});
