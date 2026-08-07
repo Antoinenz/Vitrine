@@ -2,6 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import Footer from '$lib/components/Footer.svelte';
+	import UploadOverlay from '$lib/components/UploadOverlay.svelte';
 	import { page } from '$app/state';
 	import type { LayoutData } from './$types';
 
@@ -26,6 +27,18 @@
 	<div class="page">
 		{@render children()}
 	</div>
+
+	<!--
+		Owner only, so a visitor never gets window-wide drag listeners — and so
+		dragging an image out of a gallery keeps behaving normally for them.
+
+		Mounted here rather than per page because the queue outlives any one page:
+		drop sixty files, navigate away, and the transfers and their progress panel
+		carry on.
+	-->
+	{#if data.isOwner}
+		<UploadOverlay />
+	{/if}
 
 	{#if !page.url.pathname.startsWith('/admin')}
 		<Footer

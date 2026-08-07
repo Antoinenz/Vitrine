@@ -3,9 +3,21 @@
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import Uploader from '$lib/components/Uploader.svelte';
+	import { setDropTarget } from '$lib/upload/target.svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	/**
+	 * Claims window-wide drops for this collection while the page is mounted.
+	 *
+	 * Cleared on teardown, or the next page visited would quietly keep sending
+	 * dropped files to the collection the artist has just navigated away from.
+	 */
+	$effect(() => {
+		setDropTarget({ kind: 'collection', slug: data.collection.slug, title: data.collection.title });
+		return () => setDropTarget(null);
+	});
 
 	let confirmingDelete = $state(false);
 	let editingPhoto = $state<string | null>(null);
@@ -103,7 +115,7 @@
 
 <section>
 	<h2>Photos</h2>
-	<Uploader collectionId={c.id} />
+	<Uploader slug={c.slug} />
 
 	<form method="POST" action="?/reorder" bind:this={reorderForm} use:enhance style="display: none">
 		<input type="hidden" name="photoId" value={moveFields.photoId} />

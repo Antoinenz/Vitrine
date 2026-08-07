@@ -118,12 +118,34 @@
 	 * so the same code path covers every way of reaching this page. The
 	 * destination looks identical either way; only the journey differs.
 	 */
+	/**
+	 * Which collection has already been revealed, so it happens once per arrival.
+	 *
+	 * A plain `let`, not `$state`: it is read and written inside the effect below,
+	 * and reactive state would make that a loop.
+	 *
+	 * The guard exists because the reveal is an *arrival* animation, and the
+	 * effect re-runs on every data change, not just on arrival. When an upload
+	 * finishes, the queue calls `invalidateAll()`; the load re-runs, `c` is a new
+	 * object, and the effect fires again — with nothing pending to continue from,
+	 * so `playIntoGrid` returns false and the entire grid fades and rises from
+	 * scratch. Every photograph on the page would flash after each batch of
+	 * uploads. Photos are visible by default, so newly-arrived ones simply appear
+	 * rather than animating, which is the right behaviour anyway: they were added,
+	 * not navigated to.
+	 */
+	let revealedFor: string | null = null;
+
 	$effect(() => {
 		const el = gridEl;
 		if (!el) return;
 
+		const id = c.id;
+		if (revealedFor === id) return;
+		revealedFor = id;
+
 		let cancelled = false;
-		void playIntoGrid(el, c.id).then((played) => {
+		void playIntoGrid(el, id).then((played) => {
 			if (!played && !cancelled) revealGrid(el);
 		});
 

@@ -43,6 +43,24 @@ export function requireOwner(locals: App.Locals, pathname?: string): User {
 }
 
 /**
+ * Requires a signed-in owner for an endpoint, replying rather than redirecting.
+ *
+ * `requireOwner`'s 303 is right for a page — the browser follows it and the
+ * artist sees the login form. It is wrong for `fetch`/XHR: the redirect is
+ * followed transparently, `/login` renders fine, and the caller sees **200 with
+ * an HTML body**. The uploader checks only the status code, so an expired
+ * session would look like a successful upload of every file, with nothing
+ * appearing in the collection afterwards.
+ *
+ * So endpoints get a status their caller can actually act on.
+ */
+export function requireOwnerApi(locals: App.Locals): User {
+	if (!locals.user) error(401, 'Not signed in');
+	if (locals.user.mustChangePassword) error(403, 'Password change required');
+	return locals.user;
+}
+
+/**
  * Loads a collection the given user owns, or 404s.
  *
  * Deliberately 404 rather than 403: replying "forbidden" would confirm that a
@@ -54,6 +72,24 @@ export function requireOwnedCollection(userId: string, collectionId: string): Co
 		.select()
 		.from(collections)
 		.where(and(eq(collections.id, collectionId), eq(collections.ownerId, userId)))
+		.get();
+
+	if (!collection) error(404, 'Collection not found');
+	return collection;
+}
+
+/**
+ * The same, addressed by slug.
+ *
+ * Inline editing works from the public URL, where the slug is what the artist
+ * is looking at — the id never appears. Slugs are unique per owner, so scoping
+ * the lookup by owner is what makes this unambiguous.
+ */
+export function requireOwnedCollectionBySlug(userId: string, slug: string): Collection {
+	const collection = db
+		.select()
+		.from(collections)
+		.where(and(eq(collections.slug, slug), eq(collections.ownerId, userId)))
 		.get();
 
 	if (!collection) error(404, 'Collection not found');

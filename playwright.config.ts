@@ -30,7 +30,14 @@ export default defineConfig({
 		command: 'npm run build && node build/index.js',
 		port: 4173,
 		reuseExistingServer: false,
-		timeout: 180_000,
+		/**
+		 * Covers `npm run build` as well as the server coming up, and the build is
+		 * the slow half — around 80% of it inside a single Vite plugin. On a warm
+		 * cache it finishes in seconds; cold, on the ARM box this is developed on,
+		 * it has overrun 180s and failed the whole suite before a single test ran.
+		 * A generous ceiling costs nothing when the server does start promptly.
+		 */
+		timeout: 420_000,
 		env: {
 			DATA_DIR,
 			PORT: '4173',

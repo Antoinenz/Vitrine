@@ -71,6 +71,13 @@ export default async function globalSetup() {
 		maxRedirects: 0
 	});
 
+	/**
+	 * The slug the create action derives from this title. Asserted rather than
+	 * assumed, because every path below is addressed by slug now — if slug
+	 * generation ever changed, the uploads would 404 with no hint as to why.
+	 */
+	const slug = 'sierra';
+
 	const created = await ctx.post('/admin/collections?/create', {
 		form: { title: 'Sierra' },
 		maxRedirects: 0
@@ -83,7 +90,10 @@ export default async function globalSetup() {
 
 	for (let i = 0; i < SIZES.length; i++) {
 		const body = await photo(...SIZES[i]);
-		const res = await ctx.post(`/admin/collections/${collectionId}/upload?name=p${i}.jpg`, {
+		// Slug-addressed, so seeding no longer needs the collection id — but the
+		// slug is only set by the `settings` post below, so this still runs against
+		// the auto-generated one.
+		const res = await ctx.post(`/api/collections/${slug}/upload?name=p${i}.jpg`, {
 			headers: { 'content-type': 'image/jpeg' },
 			data: body
 		});
