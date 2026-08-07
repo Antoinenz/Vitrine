@@ -139,3 +139,57 @@ test('photos keep their aspect ratio so the grid never reflows', async ({ page }
 	expect(ratios).toHaveLength(6);
 	for (const ratio of ratios) expect(ratio).not.toBe('auto');
 });
+
+test('photographs keep their proportions throughout the flight', async ({ page }) => {
+	await page.setViewportSize({ width: 1200, height: 900 });
+	await page.goto('/');
+	await expect(page.locator('.stack').first()).toBeVisible();
+
+	/**
+	 * Samples every ghost's rendered shape against the shape of the photograph it
+	 * depicts, on every frame of the flight.
+	 *
+	 * A ghost used to be cut from the stack's *layer* — a fixed, roughly 4:3 box
+	 * — and fitted to a grid figure of the photograph's own proportions. For a
+	 * portrait frame that is a different scale horizontally and vertically, so
+	 * the picture was squeezed narrow and tall for the whole journey and only
+	 * snapped back at the end, when the ghost faded and the real photograph
+	 * showed through. Measured, it reached 2.35x its correct aspect.
+	 */
+	await page.evaluate(() => {
+		const w = window as Window & { __aspect?: number[]; __raf?: number };
+		w.__aspect = [];
+		const tick = () => {
+			const layer = document.getElementById('vitrine-ghost-layer');
+			if (layer) {
+				for (const ghost of layer.children) {
+					const img = ghost.querySelector('img');
+					if (!img?.naturalWidth) continue;
+					const rect = ghost.getBoundingClientRect();
+					if (!rect.height) continue;
+					w.__aspect!.push(rect.width / rect.height / (img.naturalWidth / img.naturalHeight));
+				}
+			}
+			w.__raf = requestAnimationFrame(tick);
+		};
+		tick();
+	});
+
+	await page.locator('.stack-link').first().click();
+	await expect(page).toHaveURL(/\/c\//);
+	await page.waitForTimeout(1500);
+
+	const samples = await page.evaluate(() => {
+		const w = window as Window & { __aspect?: number[]; __raf?: number };
+		cancelAnimationFrame(w.__raf!);
+		return w.__aspect ?? [];
+	});
+
+	// The flight was actually observed, rather than the assertion passing on an
+	// empty sample set.
+	expect(samples.length).toBeGreaterThan(10);
+
+	// A few percent is sub-pixel rounding; anything more is visible distortion.
+	expect(Math.max(...samples)).toBeLessThan(1.15);
+	expect(Math.min(...samples)).toBeGreaterThan(0.87);
+});

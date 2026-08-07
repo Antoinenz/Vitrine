@@ -39,8 +39,14 @@ const PHOTO_ATTR = 'data-photo';
 /** Ghosts older than this are stale — a slow navigation, or a stray back press. */
 const MAX_AGE_MS = 2500;
 
-/** Released even if images never decode, so the page is never stuck. */
-const DECODE_TIMEOUT_MS = 400;
+/**
+ * Released even if images never decode, so the page is never stuck.
+ *
+ * Generous enough to cover a cold decode of several large photographs on a
+ * modest machine — the wait is invisible, whereas starting without them and
+ * decoding mid-flight is not.
+ */
+const DECODE_TIMEOUT_MS = 800;
 
 /**
  * Quick enough to feel responsive, and eased without overshoot.
@@ -106,7 +112,23 @@ function capture(sources: HTMLElement[], collectionId: string): void {
 		const photoId = source.getAttribute(PHOTO_ATTR);
 		if (!photoId) continue;
 
-		const rect = source.getBoundingClientRect();
+		/**
+		 * The photograph's own frame, not its wrapper.
+		 *
+		 * This is what fixes portrait photographs stretching during the flight.
+		 * A stack layer is a fixed, roughly 4:3 box that a card sits inside at the
+		 * photograph's own ratio; a grid figure is a frame plus its caption.
+		 * Fitting either wrapper to the other scales a portrait by different
+		 * amounts horizontally and vertically, which squeezes the picture — and
+		 * the distortion only disappeared at the end, when the ghost faded out and
+		 * the correctly-shaped original showed through.
+		 *
+		 * Both sides carry a `.frame` of the photograph's true proportions, so
+		 * fitting one to the other is a uniform scale and nothing distorts.
+		 */
+		const visual = source.querySelector<HTMLElement>('.frame') ?? source;
+
+		const rect = visual.getBoundingClientRect();
 		if (rect.width === 0 || rect.height === 0) continue;
 		// Entirely off screen — animating it would just fly in from nowhere.
 		if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
@@ -124,12 +146,16 @@ function capture(sources: HTMLElement[], collectionId: string): void {
 		 * same point, and re-rotated by the angle extracted from the computed
 		 * matrix. Flip then straightens it out as it lands in the grid.
 		 */
+		/**
+		 * Read from the source rather than the frame: the tilt lives on the layer,
+		 * and a child of a rotated parent reports no rotation of its own.
+		 */
 		const matrix = new DOMMatrixReadOnly(getComputedStyle(source).transform);
 		const angle = (Math.atan2(matrix.b, matrix.a) * 180) / Math.PI;
-		const width = source.offsetWidth || rect.width;
-		const height = source.offsetHeight || rect.height;
+		const width = visual.offsetWidth || rect.width;
+		const height = visual.offsetHeight || rect.height;
 
-		const clone = source.cloneNode(true) as HTMLElement;
+		const clone = visual.cloneNode(true) as HTMLElement;
 		Object.assign(clone.style, {
 			position: 'fixed',
 			left: `${rect.left + rect.width / 2 - width / 2}px`,
@@ -138,7 +164,21 @@ function capture(sources: HTMLElement[], collectionId: string): void {
 			height: `${height}px`,
 			margin: '0',
 			transform: angle ? `rotate(${angle}deg)` : 'none',
-			transition: 'none'
+			transition: 'none',
+			/**
+			 * The stack's own order, kept for the whole flight.
+			 *
+			 * Overlap only exists while the photographs are piled up, so that is the
+			 * only arrangement whose order can be seen — and the pile reads
+			 * first-on-top. The grid figures carry no z-index at all, so the
+			 * returning flight used to assemble the pile in document order and then
+			 * visibly correct itself once the real stack took over. Spread out in
+			 * the grid the order cannot be seen, which is exactly where a change to
+			 * it belongs.
+			 */
+			zIndex: String(sources.length - ghosts.length),
+			/** Promoted up front, rather than on the first frame of the tween. */
+			willChange: 'transform'
 		});
 		clone.setAttribute('aria-hidden', 'true');
 		/**
@@ -192,8 +232,20 @@ export function captureGrid(gridEl: HTMLElement, collectionId: string, limit = 4
 function whenDecoded(el: HTMLElement, timeoutMs: number): Promise<void> {
 	const img = el.querySelector('img');
 	if (!img) return Promise.resolve();
-	if (img.complete && img.naturalWidth > 0) return Promise.resolve();
 
+	/**
+	 * `decode()` even when the image is already `complete`.
+	 *
+	 * Complete means the bytes arrived, not that they have been turned into
+	 * pixels — an image that has never been painted still owes a decode, and the
+	 * browser will take it on the main thread at the first frame that shows it.
+	 * Several large photographs decoding at once is exactly the stutter that
+	 * appeared on the first opening of a collection and not on later ones, when
+	 * the decoded frames were still in memory.
+	 *
+	 * `decode()` on an already-decoded image resolves immediately, so this costs
+	 * nothing in the common case.
+	 */
 	return Promise.race([
 		img.decode().catch(() => undefined),
 		new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
@@ -260,7 +312,13 @@ async function play(
 	const timeline = gsap.timeline({ onComplete: () => state.layer.remove() });
 
 	for (const { ghost, target } of pairs) {
-		const tween = Flip.fit(ghost.el, target, {
+		/**
+		 * Fitted to the destination's frame for the same reason the ghost was cut
+		 * from one: wrapper-to-wrapper is not a uniform scale when the two
+		 * wrappers have different proportions.
+		 */
+		const destination = target.querySelector<HTMLElement>('.frame') ?? target;
+		const tween = Flip.fit(ghost.el, destination, {
 			duration: DURATION,
 			ease: ARRIVE_EASE,
 			scale: true,
