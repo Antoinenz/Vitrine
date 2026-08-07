@@ -80,7 +80,15 @@
 			<label for="avatarPhotoId">Portrait</label>
 			<div class="avatar-row">
 				{#if profile.avatarPhotoId}
-					<img class="avatar" src="/i/{profile.avatarPhotoId}/320.webp" alt="" />
+					<!-- The modal is built once and kept in the DOM, so this must not
+						     fetch until it is actually opened. -->
+					<img
+						class="avatar"
+						src="/i/{profile.avatarPhotoId}/320.webp"
+						alt=""
+						loading="lazy"
+						decoding="async"
+					/>
 				{/if}
 				<select id="avatarPhotoId" name="avatarPhotoId" value={profile.avatarPhotoId ?? ''}>
 					<option value="">None</option>
