@@ -308,13 +308,44 @@
 		}
 	});
 
-	/** Keeps the active thumbnail in view as the selection moves. */
+	/**
+	 * How wide the centre marker should be, in rem, for the selected photograph.
+	 *
+	 * The thumbnails are a fixed height with width following the frame, so the
+	 * marker has to match or it would sit loose around a portrait and clip a
+	 * panorama. Derived rather than measured: reading the element back would need
+	 * a layout pass on every step.
+	 */
+	const THUMB_HEIGHT_REM = 3.25;
+	const markerWidth = $derived(
+		Math.min(9, Math.max(1.6, (photo.width / photo.height) * THUMB_HEIGHT_REM))
+	);
+
+	/**
+	 * Brings the selected thumbnail to the centre of the strip.
+	 *
+	 * The strip moves and the marker stays put, rather than the other way round —
+	 * with a long collection a travelling highlight means hunting for it again
+	 * after every step, while a fixed centre gives the eye somewhere to rest.
+	 *
+	 * The first run jumps rather than glides: on open the strip starts at scroll
+	 * zero, and animating from there would drag the whole collection past the
+	 * viewer before settling on the photograph already on screen.
+	 */
+	let strippedOnce = false;
+
 	$effect(() => {
 		void index;
 		void tick().then(() => {
-			filmstripEl
-				?.querySelector('[aria-current="true"]')
-				?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+			const active = filmstripEl?.querySelector('[aria-current="true"]');
+			if (!active) return;
+
+			active.scrollIntoView({
+				block: 'nearest',
+				inline: 'center',
+				behavior: strippedOnce && !prefersReducedMotion() ? 'smooth' : 'auto'
+			});
+			strippedOnce = true;
 		});
 	});
 
@@ -568,19 +599,26 @@
 		aria-label="Next photograph">›</button
 	>
 
-	<nav class="filmstrip" bind:this={filmstripEl} aria-label="All photographs">
-		{#each photos as p, i (p.id)}
-			<button
-				type="button"
-				aria-current={i === index}
-				aria-label="Photograph {i + 1}"
-				onclick={() => go(i)}
-				style:background-color={p.dominantColor}
-			>
-				<img src="/i/{p.id}/320.webp" alt="" loading="lazy" decoding="async" />
-			</button>
-		{/each}
-	</nav>
+	<!--
+	The marker's width follows the selected photograph's shape, so it frames a
+	portrait chip as snugly as a panorama.
+-->
+	<div class="filmstrip-window" style:--marker-width="{markerWidth}rem">
+		<nav class="filmstrip" bind:this={filmstripEl} aria-label="All photographs">
+			{#each photos as p, i (p.id)}
+				<button
+					type="button"
+					aria-current={i === index}
+					aria-label="Photograph {i + 1}"
+					onclick={() => go(i)}
+					style:background-color={p.dominantColor}
+					style:aspect-ratio="{p.width} / {p.height}"
+				>
+					<img src="/i/{p.id}/320.webp" alt="" loading="lazy" decoding="async" />
+				</button>
+			{/each}
+		</nav>
+	</div>
 </div>
 
 <style>
@@ -808,31 +846,63 @@
 		gap: 0.4rem;
 		overflow-x: auto;
 		/*
-		 * `safe center` centres a short strip but falls back to flex-start once it
-		 * overflows. Plain `center` would push the first thumbnails past the
-		 * scroll origin, making them unreachable.
+		 * Half the strip's width of empty space at each end.
+		 *
+		 * This is what lets the *strip* move while the selection stays put. Without
+		 * it the first and last thumbnails can never reach the middle — there is
+		 * nothing to scroll past them — so the highlight had to travel along a
+		 * stationary strip instead, and the eye had to hunt for it after every
+		 * step. With the padding, every thumbnail can be brought to the centre,
+		 * and the marker becomes a fixed point the photographs pass through.
 		 */
-		justify-content: safe center;
-		padding: 1rem 1.25rem;
+		padding: 1rem 50%;
 		scrollbar-width: thin;
 		scrollbar-color: #3a3634 transparent;
 	}
 
+	/*
+	 * The centre marker: a fixed outline the selected thumbnail sits inside,
+	 * rather than an outline that moves with the selection.
+	 *
+	 * Purely decorative and never hit-testable, so it cannot intercept a click
+	 * meant for the thumbnail beneath it.
+	 */
+	.filmstrip-window {
+		position: relative;
+	}
+
+	.filmstrip-window::after {
+		content: '';
+		position: absolute;
+		top: 1rem;
+		bottom: 1rem;
+		left: 50%;
+		translate: -50% 0;
+		width: var(--marker-width, 4.5rem);
+		outline: 2px solid #f5f3f0;
+		outline-offset: 2px;
+		border-radius: 2px;
+		pointer-events: none;
+		transition: width 200ms var(--ease-out-soft);
+	}
+
 	.filmstrip button {
 		flex: none;
-		width: 4.5rem;
-		height: 3rem;
+		/*
+		 * Height is fixed and width follows the photograph, so a portrait frame is
+		 * a tall narrow chip and a panorama a wide one. They used to be forced into
+		 * one 3:2 box and cropped to fit, which made a strip of portraits
+		 * indistinguishable from each other.
+		 */
+		height: 3.25rem;
+		width: auto;
 		padding: 0;
 		border: 0;
 		border-radius: 2px;
 		overflow: hidden;
 		cursor: pointer;
 		opacity: 0.45;
-		outline: 2px solid transparent;
-		outline-offset: 2px;
-		transition:
-			opacity 200ms,
-			outline-color 200ms;
+		transition: opacity 200ms;
 	}
 
 	.filmstrip button:hover {
@@ -841,7 +911,6 @@
 
 	.filmstrip button[aria-current='true'] {
 		opacity: 1;
-		outline-color: #f5f3f0;
 	}
 
 	.filmstrip img {

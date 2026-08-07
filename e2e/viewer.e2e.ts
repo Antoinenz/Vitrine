@@ -223,3 +223,45 @@ test('a bar with the collection name appears once the header scrolls away', asyn
 	await page.evaluate(() => window.scrollTo({ top: 0 }));
 	await expect(bar).not.toBeInViewport();
 });
+
+test('the filmstrip keeps the selection centred and respects each frame shape', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 1000, height: 700 });
+	await page.goto('/c/sierra');
+	await page.locator('[data-photo] a').first().click();
+	await expect(page.locator(VIEWER)).toBeVisible();
+
+	const strip = page.locator('.filmstrip');
+	const thumbs = page.locator('.filmstrip button');
+
+	/**
+	 * The seed has landscape, portrait and square photographs, so if the strip
+	 * still forced one box shape every chip would measure the same. Distinct
+	 * widths are the evidence that the frame shape survives.
+	 */
+	const widths = await thumbs.evaluateAll((els) =>
+		els.map((el) => Math.round(el.getBoundingClientRect().width))
+	);
+	expect(new Set(widths).size).toBeGreaterThan(1);
+
+	/** The selected thumbnail sits at the middle of the strip, within a pixel or two. */
+	async function offsetFromCentre() {
+		return await page.evaluate(() => {
+			const strip = document.querySelector('.filmstrip')!;
+			const active = strip.querySelector('[aria-current="true"]')!;
+			const s = strip.getBoundingClientRect();
+			const a = active.getBoundingClientRect();
+			return Math.abs(a.left + a.width / 2 - (s.left + s.width / 2));
+		});
+	}
+
+	await expect.poll(offsetFromCentre).toBeLessThan(4);
+
+	// Stepping moves the strip, not the marker.
+	const before = await strip.evaluate((el) => el.scrollLeft);
+	await page.keyboard.press('ArrowRight');
+	await expect(page.locator(VIEWER)).toContainText('2 / 6');
+	await expect.poll(offsetFromCentre).toBeLessThan(4);
+	expect(await strip.evaluate((el) => el.scrollLeft)).not.toBe(before);
+});
