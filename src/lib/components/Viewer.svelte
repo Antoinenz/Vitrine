@@ -167,6 +167,24 @@
 	 */
 	let shownId = untrack(() => photo.id);
 
+	/**
+	 * How much of the zoom rendition has arrived, 0–1, or null when nothing is
+	 * being fetched. Drives the dial over the photograph.
+	 */
+	let zoomProgress = $state<number | null>(null);
+
+	/** The blob URL currently on screen, if any, so it can be revoked. */
+	let zoomObjectUrl: string | null = null;
+
+	function releaseZoomUrl() {
+		if (zoomObjectUrl) {
+			URL.revokeObjectURL(zoomObjectUrl);
+			zoomObjectUrl = null;
+		}
+	}
+
+	$effect(() => releaseZoomUrl);
+
 	$effect(() => {
 		const wanted = fullSrc;
 		const wantedId = photo.id;
@@ -177,6 +195,8 @@
 		 */
 		if (wantedId !== shownId) {
 			shownId = wantedId;
+			releaseZoomUrl();
+			zoomProgress = null;
 			displaySrc = wanted;
 			loadState = 'loading';
 			// A cached image can already be complete by the time this runs, in
@@ -191,17 +211,77 @@
 		// put it on screen.
 		if (wanted === untrack(() => displaySrc)) return;
 
+		/**
+		 * Zooming back out needs none of this. The preview is the rendition the
+		 * grid already loaded, so it is in cache and can be shown at once —
+		 * streaming it would put a progress dial over an image that is already
+		 * there.
+		 */
+		if (!zoomed) {
+			zoomProgress = null;
+			displaySrc = wanted;
+			releaseZoomUrl();
+			return;
+		}
+
 		let cancelled = false;
-		const preload = new Image();
-		preload.src = wanted;
-		void preload
-			.decode()
-			.then(() => {
-				if (!cancelled) displaySrc = wanted;
-			})
-			// A zoom rendition that fails to load is not worth surfacing: the
-			// visitor keeps the photograph they already had.
-			.catch(() => {});
+
+		/**
+		 * Fetched rather than assigned to an Image, so the progress is real.
+		 *
+		 * `<img>` reports only "done": there is no way to ask it how far along it
+		 * is. Streaming the response gives actual byte counts, which is the whole
+		 * point of showing a dial — a fake one that eases to 90% and waits is
+		 * worse than none, because it stops meaning anything.
+		 */
+		zoomProgress = 0;
+		void (async () => {
+			try {
+				const response = await fetch(wanted);
+				if (!response.ok || !response.body) throw new Error(String(response.status));
+
+				const total = Number(response.headers.get('content-length') ?? 0);
+				// `BlobPart[]`, not `Uint8Array[]`: a Uint8Array may be backed by a
+				// SharedArrayBuffer, which Blob does not accept.
+				const chunks: BlobPart[] = [];
+				let received = 0;
+
+				const reader = response.body.getReader();
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					if (cancelled) return reader.cancel();
+					chunks.push(value as BlobPart);
+					received += value.length;
+					// Without a content-length there is nothing honest to show, so the
+					// dial stays where it is rather than inventing a position.
+					if (total > 0) zoomProgress = Math.min(1, received / total);
+				}
+				if (cancelled) return;
+
+				/**
+				 * Handed to the browser as a blob so the decode is instant and the swap
+				 * happens in one frame. Pointing `src` at the URL again would be a
+				 * second request — served from cache, but still a gap.
+				 */
+				const url = URL.createObjectURL(new Blob(chunks));
+				const image = new Image();
+				image.src = url;
+				await image.decode();
+				if (cancelled) {
+					URL.revokeObjectURL(url);
+					return;
+				}
+				zoomProgress = 1;
+				if (zoomObjectUrl) URL.revokeObjectURL(zoomObjectUrl);
+				zoomObjectUrl = url;
+				displaySrc = url;
+			} catch {
+				// A zoom rendition that fails to load is not worth surfacing: the
+				// visitor keeps the photograph they already had.
+				if (!cancelled) zoomProgress = null;
+			}
+		})();
 
 		return () => {
 			cancelled = true;
@@ -534,6 +614,27 @@
 			onload={() => (loadState = 'ready')}
 			onerror={() => (loadState = 'error')}
 		/>
+
+		<!--
+			Progress while a zoom rendition streams in.
+			
+			Bottom left, over the photograph's corner rather than centred on it: the
+			point of zooming is to look at the picture, so the indicator must not
+			stand in front of the thing being examined. It reports real bytes — see
+			the fetch above — because a dial that eases to 90% and waits teaches
+			people to ignore dials.
+		-->
+		{#if zoomProgress !== null && zoomProgress < 1}
+			<div
+				class="zoom-progress"
+				style:--progress="{Math.round(zoomProgress * 100)}%"
+				role="progressbar"
+				aria-label="Loading full resolution"
+				aria-valuenow={Math.round(zoomProgress * 100)}
+				aria-valuemin="0"
+				aria-valuemax="100"
+			></div>
+		{/if}
 
 		{#if loadState === 'loading'}
 			<!-- Sits behind the image rather than replacing it, so the swap when it
@@ -917,6 +1018,32 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+
+	/*
+	 * A pie rather than a bar: it reads as "a portion of a whole" at a size far
+	 * too small for a bar to show anything, and it stays legible over whatever
+	 * part of the photograph happens to be beneath it.
+	 *
+	 * `conic-gradient` with a hard stop — no blur, no easing — so the wedge edge
+	 * is exactly where the number says it is.
+	 */
+	.zoom-progress {
+		position: absolute;
+		left: 1.25rem;
+		bottom: 1.25rem;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 50%;
+		pointer-events: none;
+		background: conic-gradient(
+			#ffffff 0 var(--progress),
+			rgb(255 255 255 / 0.25) var(--progress) 100%
+		);
+		/* Reads on a white sky as well as a dark forest. */
+		box-shadow:
+			0 0 0 1px rgb(0 0 0 / 0.25),
+			0 1px 6px rgb(0 0 0 / 0.35);
 	}
 
 	@media (max-width: 40rem) {

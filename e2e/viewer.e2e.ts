@@ -265,3 +265,29 @@ test('the filmstrip keeps the selection centred and respects each frame shape', 
 	await expect.poll(offsetFromCentre).toBeLessThan(4);
 	expect(await strip.evaluate((el) => el.scrollLeft)).not.toBe(before);
 });
+
+test('a progress dial reports the zoom rendition arriving', async ({ page }) => {
+	await page.goto('/c/sierra');
+	await expect(page.locator('[data-photo]').first()).toHaveCSS('opacity', '1');
+	await page.locator('[data-photo] a').first().click();
+
+	const img = page.locator(`${VIEWER} img`).first();
+	await expect(img).toBeVisible();
+
+	// Slowed, or the rendition arrives before the dial can be observed at all.
+	await page.route('**/i/**', async (route) => {
+		await new Promise((r) => setTimeout(r, 1200));
+		await route.continue();
+	});
+
+	await img.dblclick();
+
+	const dial = page.locator('.zoom-progress');
+	await expect(dial).toBeVisible();
+	// Real bytes, not a fake easing curve — so it must report a genuine position.
+	await expect(dial).toHaveAttribute('aria-valuenow', /\d+/);
+
+	// And it goes when the rendition lands, rather than lingering at 99%.
+	await expect(dial).toHaveCount(0, { timeout: 20_000 });
+	await expect(img).toBeVisible();
+});
