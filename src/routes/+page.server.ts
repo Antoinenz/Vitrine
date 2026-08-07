@@ -1,9 +1,18 @@
+import { fail, redirect } from '@sveltejs/kit';
 import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { collections, photos, profiles, users } from '$lib/server/db/schema';
 import { toPhotoViews } from '$lib/server/photos';
 import { isListed } from '$lib/server/access';
+import { requireOwner } from '$lib/server/guards';
+import { createCollection, CollectionInputError } from '$lib/server/actions/collection';
+import {
+	avatarCandidates,
+	loadProfile,
+	saveProfile,
+	ProfileInputError
+} from '$lib/server/actions/profile';
 
 /** How many photos make up the visual stack for each collection. */
 const STACK_DEPTH = 4;
@@ -13,7 +22,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// `owner_id` already exists throughout, so serving several artists later is a
 	// routing change rather than a migration.
 	const owner = db.select().from(users).orderBy(asc(users.createdAt)).limit(1).get();
-	if (!owner) return { profile: null, collections: [] };
+	if (!owner) return { profile: null, collections: [], isOwner: false, owner: null };
 
 	const profile = db.select().from(profiles).where(eq(profiles.userId, owner.id)).get();
 
@@ -46,7 +55,20 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const isOwner = locals.user?.id === owner.id;
 	const visible = all.filter((c) => isListed(c) || isOwner);
 	if (visible.length === 0) {
-		return { profile: profile ?? null, collections: [], isOwner };
+		return {
+			profile: profile ?? null,
+			collections: [],
+			isOwner,
+			/**
+			 * Carried here too, and this is the case that matters most: an install
+			 * with nothing in it is exactly when the artist needs the create button,
+			 * and returning early without this would leave the empty page with no
+			 * way forward.
+			 */
+			owner: isOwner
+				? { profile: loadProfile(owner.id), candidates: avatarCandidates(owner.id) }
+				: null
+		};
 	}
 
 	// One query for every stack, rather than one per collection.
@@ -116,6 +138,59 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		profile: profile ?? null,
 		collections: stacks,
-		isOwner
+		isOwner,
+		/**
+		 * Everything the inline editors need, and nothing a visitor would receive.
+		 * Gated on ownership rather than merely hidden in the markup, so the
+		 * anonymous payload doesn't grow and the portrait candidate list — which
+		 * names photographs — never reaches anyone else.
+		 */
+		owner: isOwner
+			? { profile: loadProfile(owner.id), candidates: avatarCandidates(owner.id) }
+			: null
 	};
+};
+
+/**
+ * The artist page edits itself.
+ *
+ * Named actions here rather than JSON endpoints, because `fail()` /
+ * `form?.message` / `use:enhance` is the pattern the whole app already uses and
+ * it keeps working with JavaScript off. Each action calls `requireOwner` itself:
+ * actions run *before* loads, so nothing the load checked can be relied on.
+ */
+export const actions: Actions = {
+	createCollection: async ({ locals, request, url }) => {
+		const user = requireOwner(locals, url.pathname);
+		const data = await request.formData();
+
+		let slug: string;
+		try {
+			slug = createCollection(user, String(data.get('title') ?? ''));
+		} catch (err) {
+			if (err instanceof CollectionInputError) {
+				return fail(400, { scope: 'create', message: err.message });
+			}
+			throw err;
+		}
+
+		// Straight into the new collection, which is empty and wants photographs.
+		redirect(303, `/c/${slug}`);
+	},
+
+	profile: async ({ locals, request, url }) => {
+		const user = requireOwner(locals, url.pathname);
+		const data = await request.formData();
+
+		try {
+			saveProfile(user, data);
+		} catch (err) {
+			if (err instanceof ProfileInputError) {
+				return fail(400, { scope: 'profile', message: err.message });
+			}
+			throw err;
+		}
+
+		return { scope: 'profile', saved: true };
+	}
 };
