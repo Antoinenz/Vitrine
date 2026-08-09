@@ -4,9 +4,30 @@
 	import Footer from '$lib/components/Footer.svelte';
 	import UploadOverlay from '$lib/components/UploadOverlay.svelte';
 	import { page } from '$app/state';
+	import { afterNavigate } from '$app/navigation';
+	import { cancelTransition } from '$lib/motion/stack-transition';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
+
+	/**
+	 * Drops a captured transition when we land somewhere that cannot play it.
+	 *
+	 * The ghosts are cleaned up by whoever plays them, which assumes every
+	 * capture is followed by a matching arrival. Clicking faster than the
+	 * animation runs breaks that assumption: a stack is captured, the navigation
+	 * is superseded, and the overlay is left sitting over the page at z-index
+	 * 9999 — a grid of photographs floating above the gallery.
+	 *
+	 * Only the artist page and a collection page ever claim one, so arriving
+	 * anywhere else means nothing will. `cancelTransition` already existed for
+	 * this and was never called; the module also expires an unclaimed overlay on
+	 * a timer, which covers the cases this hook cannot see.
+	 */
+	afterNavigate((nav) => {
+		const arrived = nav.to?.route.id;
+		if (arrived !== '/' && arrived !== '/c/[slug]') cancelTransition();
+	});
 </script>
 
 <svelte:head>
