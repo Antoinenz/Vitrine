@@ -17,6 +17,20 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * A directory holding only the migrations matching `keep`, so a test can stop
+ * history at a chosen point and insert rows into the shape the schema had back
+ * then. `runMigrations` reads a directory, so the subset has to be a real one.
+ */
+function subsetOfMigrations(root: string, name: string, keep: (file: string) => boolean): string {
+	const target = join(root, name);
+	mkdirSync(target);
+	for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && keep(f))) {
+		copyFileSync(join(MIGRATIONS_DIR, file), join(target, file));
+	}
+	return target;
+}
+
 describe('migrations', () => {
 	it('applies the generated schema and round-trips the full object graph', () => {
 		const { db } = createDb(join(dir, 'test.db'));
@@ -83,28 +97,26 @@ describe('migrations', () => {
 	});
 
 	/**
-	 * `dated_at` drives the default order of the artist page. Adding it without a
-	 * backfill would leave every existing collection null, and since the ordering
-	 * falls back to `created_at` only through `coalesce`, an install that had been
-	 * running for a year would have had its gallery silently rearranged by an
-	 * upgrade. So the migration carries a hand-written `UPDATE`, and this asserts
-	 * it against a database that genuinely predates the column.
+	 * `dated_at` and the two migrations that fight over it.
+	 *
+	 * 0003 added the column and backfilled it from `created_at`, so that every
+	 * collection carried a date and the artist page had something to sort by.
+	 * 0004 clears it again, because the ordering now derives the date from the
+	 * photographs' EXIF and `dated_at` means "the artist overrode it" — a
+	 * meaning no backfilled value can honestly have.
+	 *
+	 * Both halves are asserted here, in sequence, against a database that
+	 * genuinely predates the column. The clearing is the part that matters: a
+	 * long-running install that upgrades must end up ordered by capture date,
+	 * not pinned to the placeholders 0003 wrote.
 	 */
-	it('backfills dated_at from created_at for collections that predate the column', () => {
-		// Only the migrations that existed before 0003, so the row is inserted
-		// into the old shape rather than the current one.
-		const older = join(dir, 'older');
-		mkdirSync(older);
-		const before = readdirSync(MIGRATIONS_DIR)
-			.filter((f) => f.endsWith('.sql') && f < '0003')
-			.sort();
-		for (const file of before) {
-			copyFileSync(join(MIGRATIONS_DIR, file), join(older, file));
-		}
-
+	it('backfills dated_at, then clears it once the column becomes an override', () => {
 		const path = join(dir, 'test.db');
 		const client = openDatabase(path);
-		runMigrations(client, older);
+
+		// Only the migrations that existed before 0003, so the row is inserted
+		// into the old shape rather than the current one.
+		runMigrations(client, subsetOfMigrations(dir, 'older', (f) => f < '0003'));
 
 		client
 			.prepare(
@@ -119,13 +131,23 @@ describe('migrations', () => {
 			)
 			.run();
 
-		// Now the real thing, 0003 included.
-		expect(runMigrations(client)).toContain('0003_collection_date_and_order.sql');
+		const datedAt = () =>
+			(
+				client.prepare('SELECT dated_at FROM collections WHERE id = ?').get('c1') as {
+					dated_at: number | null;
+				}
+			).dated_at;
 
-		const row = client.prepare('SELECT dated_at FROM collections WHERE id = ?').get('c1') as {
-			dated_at: number | null;
-		};
-		expect(row.dated_at).toBe(1700000000000);
+		// 0003 alone: the collection inherits its creation date.
+		expect(runMigrations(client, subsetOfMigrations(dir, 'through-3', (f) => f < '0004'))).toContain(
+			'0003_collection_date_and_order.sql'
+		);
+		expect(datedAt()).toBe(1700000000000);
+
+		// Now the real thing, 0004 included, which takes that placeholder away.
+		expect(runMigrations(client)).toContain('0004_dated_at_is_an_override.sql');
+		expect(datedAt()).toBe(null);
+
 		client.close();
 	});
 

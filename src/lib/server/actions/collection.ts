@@ -58,9 +58,14 @@ export function createCollection(user: User, title: string): string {
 				slug,
 				title: trimmed,
 				sortKey: keyBetween(null, first?.sortKey ?? null),
-				// Today, until the artist dates it themselves. Under the default
-				// ordering that also puts it at the top, agreeing with `sortKey`.
-				datedAt: new Date(),
+				/**
+				 * `datedAt` is deliberately left null.
+				 *
+				 * It is an override, not a stamp. Ordering falls back to the capture
+				 * dates of the photographs, and a date written here at creation would
+				 * outrank those forever — every collection would sort by the day it
+				 * happened to be made rather than by when the work was shot.
+				 */
 				// Private until the artist decides otherwise — publishing should be a
 				// deliberate act, not the default for an empty collection.
 				visibility: 'private'
