@@ -1,11 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { collections, photos, profiles, users } from '$lib/server/db/schema';
 import { toPhotoViews } from '$lib/server/photos';
 import { isListed } from '$lib/server/access';
 import { requireOwner } from '$lib/server/guards';
+import { collectionOrder } from '$lib/server/collection-order';
 import { createCollection, CollectionInputError } from '$lib/server/actions/collection';
 import {
 	avatarCandidates,
@@ -26,24 +27,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const profile = db.select().from(profiles).where(eq(profiles.userId, owner.id)).get();
 
-	/**
-	 * Newest work first by default.
-	 *
-	 * `datedAt` is the date the artist ascribes to the collection, which is not
-	 * the date they got round to uploading it — ordering by `createdAt` would put
-	 * an old series scanned last week above this year's. `coalesce` covers rows
-	 * from before the column existed, and matches the index on
-	 * `(owner_id, dated_at)`.
-	 */
-	const dated = sql`coalesce(${collections.datedAt}, ${collections.createdAt})`;
-
+	// Newest work first, by when it was photographed rather than uploaded.
+	// `collectionDate()` explains the fallback chain.
 	const all = db
 		.select()
 		.from(collections)
 		.where(eq(collections.ownerId, owner.id))
-		.orderBy(
-			(profile?.collectionOrder ?? 'date') === 'date' ? desc(dated) : asc(collections.sortKey)
-		)
+		.orderBy(collectionOrder(profile?.collectionOrder))
 		.all();
 
 	/**

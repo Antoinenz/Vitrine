@@ -1,0 +1,14 @@
+-- Collections order by the capture date of their photographs, with `dated_at`
+-- demoted to an explicit override rather than a value every collection carries.
+--
+-- Every existing `dated_at` was written by machine, never by an artist: the
+-- column was introduced in 0003 and backfilled to `created_at`, and the only
+-- code that has ever written it stamped "today" at creation. There has never
+-- been an interface for setting one, so clearing the column cannot discard an
+-- artist's choice — it can only remove placeholders that would otherwise
+-- outrank the real capture dates for good.
+--
+-- Deliberately not conditional on `dated_at = created_at`. That heuristic would
+-- be needed once the collection editor exists, but running it today would be
+-- guessing at a distinction that cannot yet exist.
+UPDATE `collections` SET `dated_at` = NULL;
