@@ -341,7 +341,6 @@ async function play(
 	// pages request identical derivative URLs, so this is usually already cached.
 	await Promise.all(pairs.map(({ target }) => whenDecoded(target, DECODE_TIMEOUT_MS)));
 
-
 	const timeline = gsap.timeline({ onComplete: () => state.layer.remove() });
 
 	for (const { ghost, target } of pairs) {

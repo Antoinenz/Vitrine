@@ -216,38 +216,16 @@ test('no ghosts survive a rapid change of mind', async ({ page }) => {
 	await expect(page.locator('.stack').first()).toBeVisible();
 
 	/**
-	 * Clicking captures the stack into a fixed overlay, which is normally cleaned
-	 * up by the arriving page. Leaving for somewhere that has no grid to receive
-	 * it means nobody ever does — the case a visitor hits by clicking between
-	 * pages faster than the animation can run.
-	 *
-	 * The result was a full grid of photographs floating over the gallery at
-	 * z-index 9999 until the next transition happened to clear it.
-	 */
-	/**
-	 * Click, then leave again before the collection page has mounted.
-	 *
-	 * This is the "clicking between pages too quickly" case. The stack is
-	 * captured in the click handler, but the navigation that would have collected
-	 * the overlay is superseded — and because the artist page never unmounted,
-	 * nothing re-runs to claim it either.
+	 * Click, then leave again before the collection page has mounted. The stack
+	 * is captured in the click handler, but the navigation that would have
+	 * collected the overlay is superseded — and because the artist page never
+	 * unmounted, nothing re-runs to claim it either.
 	 */
 	await page.locator('.stack-link').first().click({ noWaitAfter: true });
 	await page.evaluate(() => history.back());
 
-	/**
-	 * Whichever navigation wins the race, the overlay must not survive it. The
-	 * destination is deliberately not asserted — the point is that *no* landing
-	 * place leaves ghosts behind.
-	 *
-	 * Honest caveat: this passes with the fix reverted. It guards the invariant,
-	 * but it does not reproduce the sequence that was actually reported — a
-	 * stranded overlay seen while clicking between pages by hand. Several
-	 * attempts to force it (a full page load, a superseded client-side
-	 * navigation, going back before the destination mounted) all self-healed,
-	 * because whatever page arrives usually does claim the capture. The two
-	 * guards it is paired with are argued from the code rather than proven by
-	 * this test.
-	 */
+	// Whichever navigation wins the race, the overlay must not survive it. The
+	// destination is deliberately not asserted — the point is that *no* landing
+	// place leaves ghosts behind.
 	await expect(page.locator(GHOST_LAYER)).toHaveCount(0, { timeout: 6000 });
 });
