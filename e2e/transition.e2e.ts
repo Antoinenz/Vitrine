@@ -193,3 +193,61 @@ test('photographs keep their proportions throughout the flight', async ({ page }
 	expect(Math.max(...samples)).toBeLessThan(1.15);
 	expect(Math.min(...samples)).toBeGreaterThan(0.87);
 });
+
+/**
+ * NOTE: this does **not** reproduce the reported fault.
+ *
+ * The bug is an overlay left floating over the gallery after clicking between
+ * pages faster than the animation can run. Two attempts to force it — leaving
+ * for a page that cannot claim the capture, and superseding the navigation with
+ * a back press — both come out clean with the fixes reverted, so this test
+ * passes either way and is not a regression test for that bug.
+ *
+ * It is kept as a guard on the general invariant: no navigation sequence may
+ * leave ghosts on screen. The fixes it accompanies are an expiry timer on an
+ * unclaimed overlay and a cancel on arriving somewhere that cannot play one,
+ * and neither is proven by a failing test.
+ */
+test('no ghosts survive a rapid change of mind', async ({ page }) => {
+	// A real entry to go back to, so `history.back()` lands on a page of the site
+	// rather than on the blank tab the context started with.
+	await page.goto('/login');
+	await page.goto('/');
+	await expect(page.locator('.stack').first()).toBeVisible();
+
+	/**
+	 * Clicking captures the stack into a fixed overlay, which is normally cleaned
+	 * up by the arriving page. Leaving for somewhere that has no grid to receive
+	 * it means nobody ever does — the case a visitor hits by clicking between
+	 * pages faster than the animation can run.
+	 *
+	 * The result was a full grid of photographs floating over the gallery at
+	 * z-index 9999 until the next transition happened to clear it.
+	 */
+	/**
+	 * Click, then leave again before the collection page has mounted.
+	 *
+	 * This is the "clicking between pages too quickly" case. The stack is
+	 * captured in the click handler, but the navigation that would have collected
+	 * the overlay is superseded — and because the artist page never unmounted,
+	 * nothing re-runs to claim it either.
+	 */
+	await page.locator('.stack-link').first().click({ noWaitAfter: true });
+	await page.evaluate(() => history.back());
+
+	/**
+	 * Whichever navigation wins the race, the overlay must not survive it. The
+	 * destination is deliberately not asserted — the point is that *no* landing
+	 * place leaves ghosts behind.
+	 *
+	 * Honest caveat: this passes with the fix reverted. It guards the invariant,
+	 * but it does not reproduce the sequence that was actually reported — a
+	 * stranded overlay seen while clicking between pages by hand. Several
+	 * attempts to force it (a full page load, a superseded client-side
+	 * navigation, going back before the destination mounted) all self-healed,
+	 * because whatever page arrives usually does claim the capture. The two
+	 * guards it is paired with are argued from the code rather than proven by
+	 * this test.
+	 */
+	await expect(page.locator(GHOST_LAYER)).toHaveCount(0, { timeout: 6000 });
+});

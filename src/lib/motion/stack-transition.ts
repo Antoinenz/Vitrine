@@ -74,7 +74,26 @@ interface PendingTransition {
 
 let pending: PendingTransition | null = null;
 
+/**
+ * Removes an unclaimed overlay even if nothing ever comes to collect it.
+ *
+ * The ghosts are only cleaned up by whoever plays them, which assumes every
+ * capture is followed by a matching arrival. It isn't: navigate away again
+ * before the destination mounts, click a second collection while the first is
+ * still settling, or land on a page that never renders that collection's stack,
+ * and nothing claims the layer. It then sits on top of everything at z-index
+ * 9999 — a full grid of photographs floating over the gallery — until the next
+ * transition happens to clear it.
+ *
+ * So a capture arms its own expiry. `claim` disarms it.
+ */
+let expiry: ReturnType<typeof setTimeout> | null = null;
+
 function removeLayer() {
+	if (expiry !== null) {
+		clearTimeout(expiry);
+		expiry = null;
+	}
 	pending?.layer.remove();
 	document.getElementById(LAYER_ID)?.remove();
 	pending = null;
@@ -200,6 +219,12 @@ function capture(sources: HTMLElement[], collectionId: string): void {
 
 	document.body.appendChild(layer);
 	pending = { collectionId, ghosts, layer, at: Date.now() };
+
+	/**
+	 * Comfortably longer than a normal navigation, so it never fires on a
+	 * transition that was simply slow — it exists for the ones that never arrive.
+	 */
+	expiry = setTimeout(removeLayer, MAX_AGE_MS);
 }
 
 /**
@@ -258,6 +283,13 @@ function claim(collectionId: string): PendingTransition | null {
 		removeLayer();
 		return null;
 	}
+
+	// Claimed: the caller owns the layer now and removes it when the flight ends,
+	// so the unclaimed-expiry timer must not fire underneath it.
+	if (expiry !== null) {
+		clearTimeout(expiry);
+		expiry = null;
+	}
 	pending = null;
 	return state;
 }
@@ -308,6 +340,7 @@ async function play(
 	// Wait for the destination images so ghosts don't land on empty boxes. Both
 	// pages request identical derivative URLs, so this is usually already cached.
 	await Promise.all(pairs.map(({ target }) => whenDecoded(target, DECODE_TIMEOUT_MS)));
+
 
 	const timeline = gsap.timeline({ onComplete: () => state.layer.remove() });
 
