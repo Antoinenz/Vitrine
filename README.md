@@ -106,6 +106,8 @@ Getting this wrong is the single most common setup problem — the gallery brows
 
 <img src="docs/screenshots/owner-controls.png" width="380" alt="The artist page signed in, with edit profile and new collection controls" /> &nbsp; <img src="docs/screenshots/settings.png" width="380" alt="Site settings — footer note, licence, footer links and legal pages" />
 
+(Screenshots taken on a pre-release version of Vitrine)
+
 </details>
 
 ## License
