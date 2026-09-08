@@ -160,11 +160,19 @@ A few decisions that aren't obvious from the code:
 <summary>More screenshots</summary>
 <br>
 
-<img src="docs/screenshots/gallery-full.png" width="380" alt="The full artist page, showing every collection as a stack" /> &nbsp; <img src="docs/screenshots/collection-grid.png" width="380" alt="A collection opened into its grid of photographs" />
+<img src="docs/screenshots/gallery-full.png" width="380" alt="The full artist page, every collection shown as a stack" /> &nbsp; <img src="docs/screenshots/gallery-hover.png" width="380" alt="The artist page with one collection under the cursor" />
 
 <img src="docs/screenshots/stack-summer-lights.png" width="380" alt="A stack of photographs at rest" /> &nbsp; <img src="docs/screenshots/stack-hover.png" width="380" alt="The same stack under the cursor, spread and tilted" />
 
 <img src="docs/screenshots/stack-auckland.png" width="380" alt="A stack mixing portrait and landscape photographs" /> &nbsp; <img src="docs/screenshots/stack-michael-jackson.png" width="380" alt="A stack tilted in 3D toward the cursor" />
+
+<img src="docs/screenshots/collection-grid.png" width="380" alt="A collection opened into its grid of photographs" /> &nbsp; <img src="docs/screenshots/collection-grid-mixed.png" width="380" alt="A collection grid mixing portrait, landscape and panoramic photographs" />
+
+<img src="docs/screenshots/collection-topbar.png" width="380" alt="The collection name and a back link in a bar that appears once the page is scrolled" /> &nbsp; <img src="docs/screenshots/viewer-portrait.png" width="380" alt="The viewer showing a portrait photograph" />
+
+<img src="docs/screenshots/viewer-details.png" width="380" alt="The viewer with the details panel open, showing camera, lens, focal length, aperture, shutter, ISO and capture date" /> &nbsp; <img src="docs/screenshots/viewer-filmstrip.png" width="380" alt="The viewer part-way through a collection, the filmstrip keeping the selected frame centred" />
+
+<img src="docs/screenshots/owner-controls.png" width="380" alt="The artist page signed in, with edit profile and new collection controls" /> &nbsp; <img src="docs/screenshots/settings.png" width="380" alt="Site settings — footer note, licence, footer links and legal pages" />
 
 <img src="docs/screenshots/terms.png" width="380" alt="The built-in terms of use page" /> &nbsp; <img src="docs/screenshots/privacy.png" width="380" alt="The built-in privacy page" />
 
