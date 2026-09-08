@@ -116,7 +116,10 @@ describe('migrations', () => {
 
 		// Only the migrations that existed before 0003, so the row is inserted
 		// into the old shape rather than the current one.
-		runMigrations(client, subsetOfMigrations(dir, 'older', (f) => f < '0003'));
+		runMigrations(
+			client,
+			subsetOfMigrations(dir, 'older', (f) => f < '0003')
+		);
 
 		client
 			.prepare(
@@ -139,9 +142,12 @@ describe('migrations', () => {
 			).dated_at;
 
 		// 0003 alone: the collection inherits its creation date.
-		expect(runMigrations(client, subsetOfMigrations(dir, 'through-3', (f) => f < '0004'))).toContain(
-			'0003_collection_date_and_order.sql'
-		);
+		expect(
+			runMigrations(
+				client,
+				subsetOfMigrations(dir, 'through-3', (f) => f < '0004')
+			)
+		).toContain('0003_collection_date_and_order.sql');
 		expect(datedAt()).toBe(1700000000000);
 
 		// Now the real thing, 0004 included, which takes that placeholder away.
