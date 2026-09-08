@@ -81,6 +81,7 @@ Getting this wrong is the single most common setup problem — the gallery brows
 | [Development](docs/DEVELOPMENT.md)     | Running from source, commands, tests, migrations, contributing          |
 | [Architecture](docs/ARCHITECTURE.md)   | Why the pieces are built the way they are                               |
 | [Roadmap](docs/ROADMAP.md)             | What works, what's rough, what's coming, what it won't become           |
+| [TODO](docs/TODO.md)                   | The working list of what to pick up next                                |
 
 ## Status
 
@@ -92,13 +93,11 @@ Getting this wrong is the single most common setup problem — the gallery brows
 <summary>More screenshots</summary>
 <br>
 
-<img src="docs/screenshots/gallery-hover.png" width="380" alt="The artist page with one collection under the cursor" /> &nbsp; <img src="docs/screenshots/stack-summer-lights.png" width="380" alt="A stack of photographs at rest" /> 
+<img src="docs/screenshots/gallery-hover.png" width="380" alt="The artist page with one collection under the cursor" /> &nbsp; <img src="docs/screenshots/stack-summer-lights.png" width="380" alt="A stack of photographs at rest" />
 
 <img src="docs/screenshots/collection-grid.png" width="380" alt="A collection opened into its grid of photographs" /> &nbsp; <img src="docs/screenshots/collection-grid-mixed.png" width="380" alt="A collection grid mixing portrait, landscape and panoramic photographs" />
- 
 
 <img src="docs/screenshots/stack-auckland.png" width="380" alt="A stack mixing portrait and landscape photographs" /> &nbsp; <img src="docs/screenshots/stack-michael-jackson.png" width="380" alt="A stack tilted in 3D toward the cursor" />
-
 
 <img src="docs/screenshots/collection-topbar.png" width="380" alt="The collection name and a back link in a bar that appears once the page is scrolled" /> &nbsp; <img src="docs/screenshots/viewer-portrait.png" width="380" alt="The viewer showing a portrait photograph" />
 

@@ -15,6 +15,7 @@
 		sizes = '100vw',
 		loading = 'lazy',
 		fetchpriority = 'auto',
+		hold = false,
 		aspect,
 		class: className = ''
 	}: {
@@ -22,6 +23,19 @@
 		sizes?: string;
 		loading?: 'lazy' | 'eager';
 		fetchpriority?: 'high' | 'low' | 'auto';
+		/**
+		 * Keeps the photograph from being requested at all, leaving the frame
+		 * showing its dominant colour.
+		 *
+		 * `loading="lazy"` is not a substitute: it defers images below the fold,
+		 * and everything competing with an arriving transition is by definition on
+		 * screen. Only withholding the element stops the fetch and the decode.
+		 *
+		 * The frame is sized from the photograph's own dimensions, so a held image
+		 * occupies exactly the space it will fill and nothing reflows when it is
+		 * released — which matters because the transition measures these boxes.
+		 */
+		hold?: boolean;
 		/**
 		 * Forces a uniform frame shape, e.g. `'4 / 3'`, cropping via object-fit.
 		 *
@@ -55,7 +69,10 @@
 
 	$effect(() => {
 		fadeEnabled = true;
-		if (imgEl?.complete) loaded = true;
+		// Recomputed rather than only ever set: a held photograph has no element at
+		// all, and the one that appears when it is released should fade in like any
+		// other rather than inheriting a stale `true` and snapping into place.
+		loaded = !!imgEl?.complete;
 	});
 </script>
 
@@ -64,23 +81,25 @@
 	style:aspect-ratio={aspect ?? `${photo.width} / ${photo.height}`}
 	style:background-color={photo.dominantColor}
 >
-	<picture>
-		{#each photo.sources as source (source.type)}
-			<source type={source.type} srcset={source.srcset} {sizes} />
-		{/each}
-		<img
-			bind:this={imgEl}
-			src={photo.src}
-			alt={photo.alt}
-			width={photo.width}
-			height={photo.height}
-			{loading}
-			{fetchpriority}
-			decoding="async"
-			class:fade={fadeEnabled && !loaded}
-			onload={() => (loaded = true)}
-		/>
-	</picture>
+	{#if !hold}
+		<picture>
+			{#each photo.sources as source (source.type)}
+				<source type={source.type} srcset={source.srcset} {sizes} />
+			{/each}
+			<img
+				bind:this={imgEl}
+				src={photo.src}
+				alt={photo.alt}
+				width={photo.width}
+				height={photo.height}
+				{loading}
+				{fetchpriority}
+				decoding="async"
+				class:fade={fadeEnabled && !loaded}
+				onload={() => (loaded = true)}
+			/>
+		</picture>
+	{/if}
 </div>
 
 <style>

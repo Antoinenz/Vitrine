@@ -5,6 +5,8 @@
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
+	import { eagerOnArrival, markArrived } from '$lib/motion/arrival';
+	import { GRID_SIZES } from '$lib/photo-sizes';
 	import { entrance } from '$lib/motion/entrance';
 	import { prefersReducedMotion } from '$lib/motion/gsap';
 	import { capturePhotoOrigin, cancelPhotoOrigin } from '$lib/motion/photo-open';
@@ -197,6 +199,22 @@
 
 	let revealedFor: string | null = null;
 
+	/**
+	 * The collection whose grid has finished arriving, which releases the
+	 * photographs held back during the flight. See `arrival.ts`.
+	 *
+	 * `$state` read through a `$derived` rather than assigned in the effect below,
+	 * because the answer is needed *during* the first render — an image held back
+	 * a frame too late has already been requested.
+	 */
+	let landed = $state<string | null>(null);
+
+	/**
+	 * Which photographs may load right now. `null` means all of them, which is
+	 * every case except the first flight into a collection.
+	 */
+	const eager = $derived(landed === c.id ? null : eagerOnArrival(c.id));
+
 	$effect(() => {
 		const el = gridEl;
 		if (!el) return;
@@ -207,6 +225,10 @@
 
 		let cancelled = false;
 		void playIntoGrid(el, id).then((played) => {
+			// Released whether or not anything played: nothing else will, and a grid
+			// that never loads its photographs is far worse than one that stutters.
+			markArrived(id);
+			landed = id;
 			if (!played && !cancelled) revealGrid(el);
 		});
 
@@ -321,9 +343,10 @@
 				>
 					<PhotoImage
 						{photo}
-						sizes="(max-width: 40rem) 100vw, (max-width: 70rem) 50vw, 33vw"
+						sizes={GRID_SIZES}
 						loading={i < 6 ? 'eager' : 'lazy'}
 						fetchpriority={i < 3 ? 'high' : 'auto'}
+						hold={eager !== null && !eager.has(photo.id)}
 					/>
 				</a>
 				{#if photo.caption}

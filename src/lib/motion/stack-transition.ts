@@ -337,8 +337,9 @@ async function play(
 	gsap.set(matched, { opacity: 0 });
 	if (rest.length) gsap.set(rest, { opacity: 0 });
 
-	// Wait for the destination images so ghosts don't land on empty boxes. Both
-	// pages request identical derivative URLs, so this is usually already cached.
+	// Wait for the destination images so ghosts don't land on empty boxes. These
+	// are the fetches `warmPhotos` started on hover or at the click, so by here
+	// they have usually already arrived.
 	await Promise.all(pairs.map(({ target }) => whenDecoded(target, DECODE_TIMEOUT_MS)));
 
 	const timeline = gsap.timeline({ onComplete: () => state.layer.remove() });
@@ -405,6 +406,18 @@ export function revealGrid(gridEl: HTMLElement): void {
 		{ opacity: 0, y: 12 },
 		{ opacity: 1, y: 0, duration: 0.5, ease: MOTION.ease, stagger: 0.04 }
 	);
+}
+
+/**
+ * The photographs currently held as ghosts for this collection, or null if none
+ * are.
+ *
+ * The arriving page uses this to tell the handful of photographs that are about
+ * to fly apart from the rest of the grid behind them — see `arrival.ts`.
+ */
+export function pendingPhotoIds(collectionId: string): Set<string> | null {
+	if (!hasPending(collectionId) || !pending) return null;
+	return new Set(pending.ghosts.map((ghost) => ghost.photoId));
 }
 
 /** True when a transition is waiting to be played for this collection. */

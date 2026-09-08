@@ -186,8 +186,19 @@ export default SqliteShim;
  */
 export function openDatabase(location: string): SqliteShim {
 	const db = new SqliteShim(location);
-	db.exec('PRAGMA journal_mode = WAL');
+
+	/**
+	 * First, because the next statement is the one most likely to need it.
+	 *
+	 * Switching journal mode takes an exclusive lock, so opening a database
+	 * another process has open throws `database is locked` — and it threw from
+	 * the `journal_mode` line, one statement before the timeout that exists to
+	 * prevent exactly that. The window is small and needs two openers at once,
+	 * which is why it read as a flaky test rather than a bug: the worker and the
+	 * server starting together, or two test files sharing a directory.
+	 */
 	db.exec('PRAGMA busy_timeout = 5000');
+	db.exec('PRAGMA journal_mode = WAL');
 	db.exec('PRAGMA foreign_keys = ON');
 	db.exec('PRAGMA synchronous = NORMAL');
 	return db;

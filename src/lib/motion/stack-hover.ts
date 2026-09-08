@@ -1,4 +1,5 @@
 import { gsap, canHover, prefersReducedMotion, MOTION } from './gsap';
+import { onPageActive } from './visibility';
 
 /**
  * Cursor-driven motion for a collection stack.
@@ -138,14 +139,16 @@ export function stackHover(node: HTMLElement) {
 	 * as stutter in anything else that animates, including the stack→grid
 	 * transition it is meant to complement.
 	 *
-	 * Two independent reasons to stop, tracked separately so neither can undo the
-	 * other: scrolled out of view, and suspended for a measurement.
+	 * Three independent reasons to stop, tracked separately so none can undo
+	 * another: scrolled out of view, the tab in the background, and suspended for
+	 * a measurement.
 	 */
 	let onScreen = false;
+	let pageActive = false;
 	let suspended = false;
 
 	function syncDrift() {
-		const shouldRun = onScreen && !suspended;
+		const shouldRun = onScreen && pageActive && !suspended;
 		for (const drift of drifts) {
 			if (shouldRun) drift.resume();
 			else drift.pause();
@@ -168,6 +171,19 @@ export function stackHover(node: HTMLElement) {
 		{ rootMargin: '200px' }
 	);
 	observer.observe(node);
+
+	/**
+	 * Stops the sway while the tab is in the background, and — the part that
+	 * matters — keeps it stopped for a moment after the tab comes back, while the
+	 * browser rebuilds what it discarded. See `visibility.ts`.
+	 *
+	 * Fires immediately with the current answer, which is what starts the sway on
+	 * a normal page load.
+	 */
+	const unwatchPage = onPageActive((value) => {
+		pageActive = value;
+		syncDrift();
+	});
 
 	function onMove(event: PointerEvent) {
 		const rect = node.getBoundingClientRect();
@@ -251,6 +267,7 @@ export function stackHover(node: HTMLElement) {
 			node.removeEventListener('pointerenter', onEnter);
 			node.removeEventListener('pointerleave', onLeave);
 			observer.disconnect();
+			unwatchPage();
 			for (const drift of drifts) drift.kill();
 			gsap.killTweensOf([node, ...cards]);
 			handles.delete(node);
