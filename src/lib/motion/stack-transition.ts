@@ -407,6 +407,18 @@ export function revealGrid(gridEl: HTMLElement): void {
 	);
 }
 
+/**
+ * The photographs currently held as ghosts for this collection, or null if none
+ * are.
+ *
+ * The arriving page uses this to tell the handful of photographs that are about
+ * to fly apart from the rest of the grid behind them — see `arrival.ts`.
+ */
+export function pendingPhotoIds(collectionId: string): Set<string> | null {
+	if (!hasPending(collectionId) || !pending) return null;
+	return new Set(pending.ghosts.map((ghost) => ghost.photoId));
+}
+
 /** True when a transition is waiting to be played for this collection. */
 export function hasPending(collectionId: string): boolean {
 	return (
