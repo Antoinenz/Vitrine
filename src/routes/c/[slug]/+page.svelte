@@ -6,6 +6,7 @@
 	import Viewer from '$lib/components/Viewer.svelte';
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
 	import { eagerOnArrival, markArrived } from '$lib/motion/arrival';
+	import { GRID_SIZES } from '$lib/photo-sizes';
 	import { entrance } from '$lib/motion/entrance';
 	import { prefersReducedMotion } from '$lib/motion/gsap';
 	import { capturePhotoOrigin, cancelPhotoOrigin } from '$lib/motion/photo-open';
@@ -342,7 +343,7 @@
 				>
 					<PhotoImage
 						{photo}
-						sizes="(max-width: 40rem) 100vw, (max-width: 70rem) 50vw, 33vw"
+						sizes={GRID_SIZES}
 						loading={i < 6 ? 'eager' : 'lazy'}
 						fetchpriority={i < 3 ? 'high' : 'auto'}
 						hold={eager !== null && !eager.has(photo.id)}

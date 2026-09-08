@@ -3,6 +3,8 @@
 	import { preloadData } from '$app/navigation';
 	import { page } from '$app/state';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
+	import { GRID_SIZES, STACK_SIZES } from '$lib/photo-sizes';
+	import { warmPhotos } from '$lib/photo-warm';
 	import { stackHover } from '$lib/motion/stack-hover';
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
@@ -83,28 +85,15 @@
 
 	/**
 	 * Warms the destination on hover, so the click has both the page data and the
-	 * grid's images already in cache. The stack and the grid request identical
-	 * derivative URLs, which is what makes the second half of this work.
+	 * grid's images already in cache.
+	 *
+	 * The image half is `warmPhotos`, which resolves the grid's own `sizes` and so
+	 * fetches the file the grid will actually display — see `photo-warm.ts` for
+	 * what this used to fetch instead.
 	 */
 	function warm(collection: (typeof data.collections)[number], href: string) {
 		void preloadData(href);
-
-		/**
-		 * Decoded, not merely fetched.
-		 *
-		 * Assigning `src` gets the bytes; it does not turn them into pixels. An
-		 * image that has never been painted still owes a decode, and the browser
-		 * takes that on the main thread at the first frame that shows it — so
-		 * warming this way used to leave the whole decode cost sitting exactly on
-		 * the transition it was meant to smooth. It showed up as a stutter on the
-		 * first opening of a collection and not on later ones.
-		 */
-		for (const photo of collection.stack) {
-			const image = new Image();
-			image.src = photo.src;
-			// Nothing depends on it finishing; a failure just means no head start.
-			void image.decode().catch(() => undefined);
-		}
+		warmPhotos(collection.stack, GRID_SIZES);
 	}
 
 	/**
@@ -112,12 +101,22 @@
 	 * SvelteKit's router still handles the link normally, so the URL changes and
 	 * the page is genuinely shareable.
 	 */
-	function onStackClick(event: MouseEvent, collectionId: string) {
+	function onStackClick(event: MouseEvent, collection: (typeof data.collections)[number]) {
 		// Let modified clicks (new tab, download) behave normally.
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 
+		/**
+		 * Warmed again here, not only on hover.
+		 *
+		 * A tap has no hover to warm on, and neither does following the link from
+		 * the keyboard quickly enough. `warmPhotos` reuses one holder and the
+		 * browser deduplicates a fetch already in flight, so doing it twice on a
+		 * mouse costs nothing while making the touch path work at all.
+		 */
+		warmPhotos(collection.stack, GRID_SIZES);
+
 		const stack = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('.stack');
-		if (stack) captureStack(stack, collectionId);
+		if (stack) captureStack(stack, collection.id);
 	}
 
 	/**
@@ -237,7 +236,7 @@
 					data-collection={collection.id}
 					onpointerenter={(e) => warm(collection, e.currentTarget.href)}
 					onfocus={(e) => warm(collection, e.currentTarget.href)}
-					onclick={(e) => onStackClick(e, collection.id)}
+					onclick={(e) => onStackClick(e, collection)}
 				>
 					<!--
 						The stack. Each layer is offset and rotated from CSS custom
@@ -290,7 +289,7 @@
 								<div class="card" style:--ratio="{photo.width} / {photo.height}">
 									<PhotoImage
 										{photo}
-										sizes="(max-width: 40rem) 80vw, 320px"
+										sizes={STACK_SIZES}
 										loading={i === 0 ? 'eager' : 'lazy'}
 										fetchpriority={i === 0 ? 'high' : 'auto'}
 									/>

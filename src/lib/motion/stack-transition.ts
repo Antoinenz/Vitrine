@@ -337,8 +337,9 @@ async function play(
 	gsap.set(matched, { opacity: 0 });
 	if (rest.length) gsap.set(rest, { opacity: 0 });
 
-	// Wait for the destination images so ghosts don't land on empty boxes. Both
-	// pages request identical derivative URLs, so this is usually already cached.
+	// Wait for the destination images so ghosts don't land on empty boxes. These
+	// are the fetches `warmPhotos` started on hover or at the click, so by here
+	// they have usually already arrived.
 	await Promise.all(pairs.map(({ target }) => whenDecoded(target, DECODE_TIMEOUT_MS)));
 
 	const timeline = gsap.timeline({ onComplete: () => state.layer.remove() });
