@@ -13,6 +13,8 @@ The target is someone who wants their work presented well and owned outright, wi
 
 Neither goal is allowed to eat the other. Defaults exist so nobody _has_ to configure anything; nothing is hidden so that people who care can't reach it.
 
+For the working list of what to pick up next, see [TODO](TODO.md).
+
 ## Where it is today
 
 Early development. It works end to end and it has been run in anger by exactly one person, its author. Back up `DATA_DIR` and expect rough edges.
