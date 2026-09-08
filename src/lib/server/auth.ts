@@ -158,7 +158,30 @@ export function setSessionCookie(event: RequestEvent, token: string, expiresAt: 
 		// don't carry it.
 		sameSite: 'lax',
 		secure: isSecureRequest(event),
-		expires: expiresAt
+		/**
+		 * `maxAge`, not `expires`.
+		 *
+		 * `Expires` is an absolute date written by the server and judged against
+		 * the *browser's* clock. If the two disagree by more than the session
+		 * lifetime, the browser receives a cookie that is already in the past and
+		 * discards it on the spot — sign-in then appears to do nothing at all, and
+		 * the server sees a perfectly successful login, so nothing is logged and
+		 * no error is shown. That is the same silent class of failure as the
+		 * `Secure`-over-HTTP bug this module was written to prevent.
+		 *
+		 * `Max-Age` is a duration the browser counts from the moment it receives
+		 * the response, so any constant offset between the two clocks cancels out.
+		 * The remaining lifetime is a difference between two readings of the same
+		 * clock, which stays correct however wrong that clock is in absolute terms.
+		 *
+		 * The database keeps the absolute `expiresAt`; server-side validation is
+		 * judged against the same clock that wrote it, so it is unaffected.
+		 *
+		 * Floored at one second because a zero or negative `Max-Age` is the
+		 * encoding for "delete this cookie" — an expiry that has just lapsed must
+		 * not silently become a sign-out.
+		 */
+		maxAge: Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 1000))
 	});
 }
 
