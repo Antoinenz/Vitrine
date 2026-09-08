@@ -92,6 +92,15 @@ Caddy has no request body limit by default and needs nothing.
 
 **On reaching your gallery at more than one address:** `ORIGIN` is a single value, and SvelteKit rejects form submissions whose `Origin` header doesn't match it — so browsing works from anywhere, but signing in only works at the configured address. SvelteKit's `csrf.trustedOrigins` allow-list would solve it, but that is **build-time** configuration, so it can't be set through an environment variable on a prebuilt image. Pick the address you'll administer from and set `ORIGIN` to it.
 
+**Behind a reverse proxy or a tunnel** (Cloudflare Tunnel, nginx, Caddy), `ORIGIN` must be the **public** URL your browser shows, not the address the proxy forwards to:
+
+```sh
+# The gallery listens on localhost:3000, but visitors arrive at:
+ORIGIN=https://gallery.example.com
+```
+
+Set it to the internal address and browsing still works perfectly — every page loads, images and all — while signing in fails with a bare `403 Forbidden` in the network tab and no message on the page. The origin check runs before anything that could explain itself. If sign-in 403s, this is almost always why.
+
 **On low-powered hardware** (a Raspberry Pi, a 1 vCPU VPS), set `IMAGE_FORMATS=webp`. AVIF compresses better but costs seconds of CPU per rendition, which is painful when you drop 200 photographs at once.
 
 ### Backups
