@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { preloadData } from '$app/navigation';
+	import { tick } from 'svelte';
+	import { enhance } from '$app/forms';
+	import { goto, preloadData } from '$app/navigation';
 	import { page } from '$app/state';
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import { GRID_SIZES, STACK_SIZES } from '$lib/photo-sizes';
@@ -9,20 +11,96 @@
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
 	import OwnerBar from '$lib/components/OwnerBar.svelte';
-	import CollectionCreateModal from '$lib/components/CollectionCreateModal.svelte';
+
 	import ProfileModal from '$lib/components/ProfileModal.svelte';
 	import { setDropTarget, heldFolderName } from '$lib/upload/target.svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let creating = $state(false);
+	let createForm = $state<HTMLFormElement>();
+
+	/**
+	 * True while a create is in flight, so the tile can appear before the server
+	 * has answered. Without it the gallery sits still after a click that is meant
+	 * to feel immediate.
+	 */
+	let creatingPlaceholder = $state(false);
+
+	/** Where a dropped folder should send us once its collection exists. */
+	let goAfterCreate = $state(false);
 	let editingProfile = $state(false);
 
 	/**
-	 * A folder dropped on this page has no collection to go into, so the files
-	 * are held and the create modal opens with the folder's name already filled
-	 * in — which is almost always what the artist would have typed.
+	 * Which collection's title is open for editing, and what is in the field.
+	 *
+	 * The draft is held here rather than bound to the collection, so abandoning a
+	 * rename with Escape needs no undo — nothing was written.
+	 */
+	let renamingId = $state<string | null>(null);
+	let draft = $state('');
+	let renameForm = $state<HTMLFormElement>();
+
+	/** The title as it was when editing began, to tell a real change from a no-op. */
+	let renamingFrom = '';
+
+	function beginRename(id: string, title: string) {
+		renamingId = id;
+		renamingFrom = title;
+		draft = title;
+	}
+
+	/**
+	 * Commits, unless nothing changed.
+	 *
+	 * Pressing Enter straight after creating is the common case, and it should
+	 * cost nothing: the collection already has the default name the server gave
+	 * it, so there is no request worth making.
+	 */
+	function commitRename() {
+		const id = renamingId;
+		if (!id) return;
+
+		const next = draft.trim();
+		renamingId = null;
+		if (!next || next === renamingFrom) return;
+
+		draft = next;
+		renameForm?.requestSubmit();
+	}
+
+	/** Abandons the edit. Nothing was sent, so there is nothing to undo. */
+	function cancelRename() {
+		renamingId = null;
+	}
+
+	function onTitleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			commitRename();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			cancelRename();
+		}
+	}
+
+	/**
+	 * Focuses the field and selects what is in it, so typing replaces the name
+	 * and an arrow key keeps it — which is the whole gesture being copied.
+	 */
+	function selectOnMount(node: HTMLInputElement) {
+		node.focus();
+		node.select();
+	}
+
+	/**
+	 * A folder dropped on this page has no collection to go into, so one is made
+	 * from the folder's own name — which is almost always what the artist would
+	 * have typed anyway.
+	 *
+	 * This path still navigates into the new collection, unlike the button:
+	 * dropping a folder is a finished instruction, the held files are flushed by
+	 * the arrival, and there is nothing left to name.
 	 */
 	let suggestedTitle = $state('');
 
@@ -39,7 +117,7 @@
 			kind: 'create',
 			onHeld: () => {
 				suggestedTitle = heldFolderName() ?? '';
-				creating = true;
+				createForm?.requestSubmit();
 			}
 		});
 		return () => setDropTarget(null);
@@ -72,6 +150,25 @@
 	 * rather than fanned by index from one corner. Rotation is about the middle
 	 * of the card, so the pile splays both ways instead of hinging from a point.
 	 */
+	/**
+	 * Blank cards for an empty collection, at assorted shapes.
+	 *
+	 * Derived from the collection id rather than random, for the same reason the
+	 * scatter is: a value that differs between server and client would make every
+	 * placeholder jump the moment the page hydrated.
+	 */
+	const PLACEHOLDER_RATIOS = ['3 / 2', '2 / 3', '4 / 3', '1 / 1', '5 / 4'];
+
+	function placeholders(id: string) {
+		return [0, 1, 2].map((i) => {
+			const seed = `${id}:${i}`;
+			return {
+				...scatter(seed),
+				ratio: PLACEHOLDER_RATIOS[Math.floor(seeded(seed, 6) * PLACEHOLDER_RATIOS.length)]
+			};
+		});
+	}
+
 	function scatter(id: string) {
 		return {
 			rotate: `${(spread(id, 1) * 7).toFixed(2)}deg`,
@@ -160,14 +257,59 @@
 </svelte:head>
 
 {#if data.isOwner && data.owner}
-	<OwnerBar onCreate={() => (creating = true)} onEditProfile={() => (editingProfile = true)} />
+	<OwnerBar onEditProfile={() => (editingProfile = true)} />
 
-	<CollectionCreateModal
-		open={creating}
-		onClose={() => (creating = false)}
-		initialTitle={suggestedTitle}
-		message={form?.scope === 'create' ? form.message : null}
-	/>
+	<!--
+		Real forms, submitted programmatically.
+
+		The button in the owner bar points at this one through its `form`
+		attribute, so creating a collection is a plain submit that works with
+		JavaScript switched off — the response simply re-renders the page with the
+		new collection on it, rather than opening a field nothing can type into.
+	-->
+	<form
+		id="new-collection"
+		method="POST"
+		action="?/createCollection"
+		bind:this={createForm}
+		use:enhance={() => {
+			creatingPlaceholder = true;
+			goAfterCreate = suggestedTitle !== '';
+			return async ({ result, update }) => {
+				await update({ reset: false });
+				creatingPlaceholder = false;
+
+				if (result.type !== 'success' || !result.data) return;
+				const created = result.data as { id: string; slug: string; title: string };
+
+				if (goAfterCreate) {
+					// A dropped folder: the held files flush on arrival.
+					suggestedTitle = '';
+					await goto(resolve('/c/[slug]', { slug: created.slug }));
+					return;
+				}
+
+				// Otherwise stay put and open the name for editing.
+				await tick();
+				beginRename(created.id, created.title);
+			};
+		}}
+	>
+		<input type="hidden" name="title" value={suggestedTitle} />
+	</form>
+
+	<form
+		method="POST"
+		action="?/renameCollection"
+		bind:this={renameForm}
+		use:enhance={() =>
+			async ({ update }) =>
+				update({ reset: false })}
+		hidden
+	>
+		<input type="hidden" name="id" value={renamingId ?? ''} />
+		<input type="hidden" name="title" value={draft} />
+	</form>
 
 	<ProfileModal
 		open={editingProfile}
@@ -219,24 +361,74 @@
 			<!-- A button rather than a link now: creating happens in a modal on this
 			     page, so there is nowhere to navigate to. -->
 			Nothing here yet.
-			<button type="button" class="link" onclick={() => (creating = true)}>
-				Make your first collection</button
-			>, or drop a folder of photographs anywhere on this page.
+			<button type="submit" form="new-collection" class="link"> Make your first collection</button>,
+			or drop a folder of photographs anywhere on this page.
 		{:else}
 			Nothing here yet.
 		{/if}
 	</p>
 {:else}
 	<ul class="collections">
+		<!--
+			The tile appears on the click, not on the reply.
+
+			Creating is a round trip, and over a tunnel to a small server that is
+			long enough to feel like nothing happened. This is the same blank stack
+			the collection will have anyway once it exists, so the swap when the
+			real one arrives is invisible.
+
+			Not a link, and carrying no `data-photo`: there is nothing to navigate
+			to yet and nothing for a transition to pair with.
+		-->
+		{#if creatingPlaceholder}
+			<li aria-hidden="true">
+				<div class="stack-link pending">
+					<div class="stack" style:--depth="3">
+						{#each placeholders('pending') as blank, i (i)}
+							<div
+								class="layer"
+								style:--i={i}
+								style:--rot={blank.rotate}
+								style:--dx={blank.dx}
+								style:--dy={blank.dy}
+								style:z-index={3 - i}
+							>
+								<div class="card blank" style:--ratio={blank.ratio}></div>
+							</div>
+						{/each}
+					</div>
+					<!-- Not a heading: the whole tile is hidden from assistive
+					     technology, and an empty h2 in the outline is worse than no h2. -->
+					<div class="caption"><div class="pending-title">New collection</div></div>
+				</div>
+			</li>
+		{/if}
+
 		{#each data.collections as collection (collection.id)}
 			<li>
+				<!--
+					Labelled explicitly, because the caption is no longer inside it.
+
+					The link wraps only the photographs now, so its accessible name would
+					otherwise be whatever the alt text of a few prints happens to say —
+					or "Empty" for a new collection. Every link on the page would
+					announce as the same thing.
+				-->
 				<a
 					class="stack-link"
+					aria-label={collection.title}
 					href={resolve('/c/[slug]', { slug: collection.slug })}
 					data-collection={collection.id}
 					onpointerenter={(e) => warm(collection, e.currentTarget.href)}
 					onfocus={(e) => warm(collection, e.currentTarget.href)}
 					onclick={(e) => onStackClick(e, collection)}
+					onkeydown={(e) => {
+						// F2, as everywhere else that renames things in place.
+						if (data.isOwner && e.key === 'F2') {
+							e.preventDefault();
+							beginRename(collection.id, collection.title);
+						}
+					}}
 				>
 					<!--
 						The stack. Each layer is offset and rotated from CSS custom
@@ -253,15 +445,36 @@
 						{@attach (node) => returnTransition(node, collection.id)}
 					>
 						<!--
-							Owner-only: a collection with nothing processed yet.
+							A collection with nothing processed yet, drawn as a stack of blank
+							prints so a new one has the shape of the thing it will become
+							rather than an empty rectangle.
 
-							Deliberately not a `.layer` / `.card` / `[data-photo]` element.
-							Those three are the transition's and the hover's vocabulary; a
-							placeholder answering to them would be cloned into the ghost
-							layer and flown at the grid. `stackHover` finds no `.card` here
-							and returns without binding, so an empty tile is simply inert.
+							They carry `.layer` and `.card`, so they scatter and tilt like
+							real prints — but deliberately **no `data-photo`**. That marker is
+							the transition's vocabulary: an element answering to it would be
+							cloned into the ghost layer and flown at a grid that has nothing
+							to receive it.
+
+							The status line stays. Blank cards at a glance look like a stack
+							that has not loaded, and an empty collection that looks full is a
+							worse lie than an empty one that looks empty.
 						-->
 						{#if collection.stack.length === 0}
+							{#each placeholders(collection.id) as blank, i (i)}
+								<div
+									class="layer"
+									style:--i={i}
+									style:--rot={blank.rotate}
+									style:--dx={blank.dx}
+									style:--dy={blank.dy}
+									style:--drift="{blank.drift}s"
+									style:--drift-dir={blank.driftDir}
+									style:z-index={3 - i}
+								>
+									<div class="card blank" style:--ratio={blank.ratio}></div>
+								</div>
+							{/each}
+
 							<div class="placeholder" class:working={collection.pendingCount > 0}>
 								{#if collection.failedCount > 0}
 									{collection.failedCount} failed
@@ -297,21 +510,81 @@
 							</div>
 						{/each}
 					</div>
-
-					<div class="caption">
-						<h2>{collection.title}</h2>
-						<p class="count">
-							{collection.photoCount}
-							{collection.photoCount === 1 ? 'photograph' : 'photographs'}
-							{#if data.isOwner && collection.visibility !== 'public'}
-								<span class="tag">{collection.visibility}</span>
-							{/if}
-							{#if data.isOwner && collection.hasPassword}
-								<span class="tag">password</span>
-							{/if}
-						</p>
-					</div>
 				</a>
+
+				<!--
+					The caption sits outside the link, not inside it.
+
+					It has to: for the owner the title is a control, and interactive
+					content nested in an anchor is invalid HTML — the browser is free to
+					do what it likes with a button inside a link, and assistive
+					technology reports it as neither one thing nor the other.
+
+					Keeping it a sibling also makes the split honest. The photographs are
+					what you click to open; the name is what you click to change it.
+				-->
+				<div class="caption">
+					{#if renamingId === collection.id}
+						<input
+							class="rename"
+							value={draft}
+							maxlength="200"
+							aria-label="Collection name"
+							{@attach selectOnMount}
+							oninput={(e) => (draft = e.currentTarget.value)}
+							onkeydown={onTitleKeydown}
+							onblur={commitRename}
+							onclick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+							}}
+							ondblclick={(e) => e.stopPropagation()}
+						/>
+					{:else if data.isOwner}
+						<!--
+								For the owner the title is a field, and the photographs are the
+								thing you click to open. That is the split File Explorer makes
+								between a file's name and its icon, and it is what lets renaming
+								happen without a timer racing a navigation.
+							-->
+						<h2>
+							<!--
+								Named "Rename X" rather than just X. Two buttons both reading
+								"New collection" - the one that makes them, and a collection
+								actually called that - is ambiguous to anyone listening rather
+								than looking, and it is the kind of collision that only appears
+								once someone has a collection with an awkward name.
+							-->
+							<button
+								type="button"
+								class="title-button"
+								aria-label="Rename {collection.title}"
+								title="Rename (F2)"
+								onclick={() => beginRename(collection.id, collection.title)}
+							>
+								{collection.title}
+							</button>
+						</h2>
+					{:else}
+						<!-- A visitor gets the name as a second way in, which is what it
+						     was while the caption lived inside the link. -->
+						<h2>
+							<a class="title-link" href={resolve('/c/[slug]', { slug: collection.slug })}>
+								{collection.title}
+							</a>
+						</h2>
+					{/if}
+					<p class="count">
+						{collection.photoCount}
+						{collection.photoCount === 1 ? 'photograph' : 'photographs'}
+						{#if data.isOwner && collection.visibility !== 'public'}
+							<span class="tag">{collection.visibility}</span>
+						{/if}
+						{#if data.isOwner && collection.hasPassword}
+							<span class="tag">password</span>
+						{/if}
+					</p>
+				</div>
 			</li>
 		{/each}
 	</ul>
@@ -440,6 +713,77 @@
 		transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--rot));
 	}
 
+	/*
+	 * A blank print: the shape of a photograph with none in it.
+	 *
+	 * Flat rather than a shimmer or a spinner. Nothing is loading — the
+	 * collection is genuinely empty — and animating it would promise an arrival
+	 * that is not coming.
+	 */
+	/* Matches the heading it stands in for, so nothing shifts on the swap. */
+	.pending-title {
+		font-size: 1rem;
+		font-weight: 500;
+	}
+
+	/* Faded, because it is a promise rather than a thing. */
+	.pending {
+		opacity: 0.55;
+	}
+
+	.card.blank {
+		background: var(--color-surface-sunken);
+		border: 1px solid var(--color-hairline);
+	}
+
+	/*
+	 * The title as a field, sized and positioned exactly like the heading it
+	 * replaces, so committing a rename does not make the caption jump.
+	 */
+	.caption :global(.rename) {
+		font: inherit;
+		font-size: 1rem;
+		font-weight: 500;
+		width: 100%;
+		max-width: 100%;
+		margin: 0;
+		padding: 0;
+		border: none;
+		border-bottom: 1px solid var(--color-ink);
+		border-radius: 0;
+		background: none;
+		color: var(--color-ink);
+	}
+
+	.caption :global(.rename):focus {
+		outline: none;
+	}
+
+	.title-link {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	/* A button that has to read as the heading it sits inside. */
+	.title-button {
+		font: inherit;
+		display: block;
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		border: none;
+		background: none;
+		color: inherit;
+		text-align: left;
+		cursor: text;
+	}
+
+	.title-button:hover {
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 0.25em;
+	}
+
 	.card {
 		/*
 		 * Sized by the photograph's own ratio and contained in the layer, so a
@@ -503,7 +847,8 @@
 		letter-spacing: -0.01em;
 	}
 
-	.stack-link:hover h2 {
+	/* Scoped to the whole tile now that the caption is a sibling of the link. */
+	.collections li:hover h2 {
 		text-decoration: underline;
 		text-underline-offset: 3px;
 	}

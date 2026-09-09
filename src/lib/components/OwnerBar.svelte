@@ -16,10 +16,8 @@
 	 * though it were a photograph.
 	 */
 	let {
-		onCreate,
 		onEditProfile
 	}: {
-		onCreate: () => void;
 		onEditProfile: () => void;
 	} = $props();
 </script>
@@ -29,7 +27,11 @@
 	     should open in a new tab, be bookmarked and be shared like one. -->
 	<a class="link" href={resolve('/trash')}>Trash</a>
 	<button type="button" onclick={onEditProfile}>Edit profile</button>
-	<button type="button" class="primary" onclick={onCreate}>New collection</button>
+	<!--
+		Submits the form the page owns, through the `form` attribute, so this stays
+		a real submit and creating a collection keeps working without JavaScript.
+	-->
+	<button type="submit" form="new-collection" class="primary">New collection</button>
 </div>
 
 <style>

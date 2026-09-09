@@ -96,14 +96,16 @@ export default async function globalSetup() {
 	 */
 	const slug = 'sierra';
 
-	// Created from the artist page now — there is no separate collections screen.
-	const created = await ctx.post('/?/createCollection', {
-		form: { title: 'Sierra' },
-		maxRedirects: 0
-	});
-	const location = created.headers()['location'] ?? '';
-	if (location !== `/c/${slug}`) {
-		throw new Error(`Seeding failed: expected a redirect to /c/${slug}, got "${location}"`);
+	/**
+	 * Created from the artist page. Creating no longer redirects — the tile
+	 * appears in place with its name ready to type over — so the collection is
+	 * confirmed by asking for it rather than by reading a Location header.
+	 */
+	await ctx.post('/?/createCollection', { form: { title: 'Sierra' } });
+
+	const check = await ctx.get(`/c/${slug}`);
+	if (!check.ok()) {
+		throw new Error(`Seeding failed: /c/${slug} answered ${check.status()} after creating it.`);
 	}
 
 	/**

@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
@@ -7,7 +7,11 @@ import { toPhotoViews } from '$lib/server/photos';
 import { isListed } from '$lib/server/access';
 import { requireOwner } from '$lib/server/guards';
 import { collectionOrder } from '$lib/server/collection-order';
-import { createCollection, CollectionInputError } from '$lib/server/actions/collection';
+import {
+	createCollection,
+	renameCollection,
+	CollectionInputError
+} from '$lib/server/actions/collection';
 import {
 	avatarCandidates,
 	loadProfile,
@@ -150,18 +154,44 @@ export const actions: Actions = {
 		const user = requireOwner(locals, url.pathname);
 		const data = await request.formData();
 
-		let slug: string;
 		try {
-			slug = createCollection(user, String(data.get('title') ?? ''));
+			const created = createCollection(user, String(data.get('title') ?? ''));
+
+			/**
+			 * Returned rather than redirected to.
+			 *
+			 * Creating used to jump straight into the empty collection. It now puts
+			 * a tile at the top of the gallery with its name ready to be typed
+			 * over, so the artist stays where they are — and without JavaScript the
+			 * same response simply re-renders the page with the new collection on
+			 * it, which is a reasonable outcome rather than a broken one.
+			 */
+			return { scope: 'create', ...created };
 		} catch (err) {
 			if (err instanceof CollectionInputError) {
 				return fail(400, { scope: 'create', message: err.message });
 			}
 			throw err;
 		}
+	},
 
-		// Straight into the new collection, which is empty and wants photographs.
-		redirect(303, `/c/${slug}`);
+	renameCollection: async ({ locals, request, url }) => {
+		const user = requireOwner(locals, url.pathname);
+		const data = await request.formData();
+
+		try {
+			const result = renameCollection(
+				user,
+				String(data.get('id') ?? ''),
+				String(data.get('title') ?? '')
+			);
+			return { scope: 'rename', ...result };
+		} catch (err) {
+			if (err instanceof CollectionInputError) {
+				return fail(400, { scope: 'rename', message: err.message });
+			}
+			throw err;
+		}
 	},
 
 	profile: async ({ locals, request, url }) => {

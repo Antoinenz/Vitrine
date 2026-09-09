@@ -19,11 +19,12 @@ async function signIn(page: import('@playwright/test').Page) {
 test('a discarded collection leaves the gallery and comes back intact', async ({ page }) => {
 	await signIn(page);
 
-	await page.getByRole('button', { name: /new collection/i }).click();
-	await page.getByLabel(/title/i).fill('Bin Test');
-	await page.getByRole('button', { name: /^create$/i }).click();
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
+	const field = page.getByRole('textbox', { name: 'Collection name' });
+	await field.fill('Bin Test');
+	await field.press('Enter');
 
-	await expect(page.getByRole('heading', { name: 'Bin Test' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Rename Bin Test' })).toBeVisible();
 
 	// Reached the way the artist reaches it: from the collection's own page.
 	// There is no /admin/collections index, only the per-collection route.
@@ -34,7 +35,7 @@ test('a discarded collection leaves the gallery and comes back intact', async ({
 
 	// Gone from the public gallery.
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'Bin Test' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Rename Bin Test' })).toHaveCount(0);
 
 	// And gone from its own address, which is the part that actually matters.
 	const gone = await page.request.get('/c/bin-test');

@@ -1,8 +1,15 @@
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../db';
-import type { User } from '../db/schema';
-import { uniqueSlug } from '../slug';
+import { photos, type User } from '../db/schema';
+import { slugify, uniqueSlug, isReservedSlug } from '../slug';
 import { keyBetween } from '../sort-key';
-import { slugTaken, firstSortKey } from '../collections';
+import {
+	slugTaken,
+	firstSortKey,
+	findOwnedById,
+	updateCollection,
+	type Runner
+} from '../collections';
 import { insertCollection } from '../collections';
 
 /**
@@ -17,18 +24,30 @@ import { insertCollection } from '../collections';
 /** Thrown for anything the artist can fix by editing the form. */
 export class CollectionInputError extends Error {}
 
+/** What a collection is called before the artist has called it anything. */
+export const DEFAULT_TITLE = 'New collection';
+
 /**
- * Creates an empty collection and returns its slug.
+ * Creates an empty collection.
  *
- * The slug is what the caller wants: every inline surface is addressed by slug,
- * and the redirect after creating goes to `/c/<slug>`.
+ * Returns the id as well as the slug, because the artist page now names the
+ * collection in place rather than navigating to it: the id is what identifies
+ * the tile whose title should open for editing.
+ *
+ * An empty title is no longer an error. Creating is a single click that puts a
+ * tile on the page with its name selected, exactly as a file manager makes a
+ * folder called "New folder" — so there is a default to fall back to, and
+ * pressing Enter immediately is a choice rather than a mistake.
  */
-export function createCollection(user: User, title: string): string {
-	const trimmed = title.trim();
-	if (!trimmed) throw new CollectionInputError('Give the collection a title.');
+export function createCollection(
+	user: User,
+	title: string
+): { id: string; slug: string; title: string } {
+	const trimmed = title.trim() || DEFAULT_TITLE;
 	if (trimmed.length > 200) throw new CollectionInputError('That title is too long.');
 
 	let slug = '';
+	const id = crypto.randomUUID();
 
 	db.transaction((tx) => {
 		// Uniqueness is checked inside the transaction that inserts, so two
@@ -41,7 +60,7 @@ export function createCollection(user: User, title: string): string {
 
 		insertCollection(
 			{
-				id: crypto.randomUUID(),
+				id,
 				ownerId: user.id,
 				slug,
 				title: trimmed,
@@ -62,5 +81,77 @@ export function createCollection(user: User, title: string): string {
 		);
 	});
 
-	return slug;
+	return { id, slug, title: trimmed };
+}
+
+/**
+ * Renames a collection in place, and moves its address with it only while that
+ * is safe.
+ *
+ * ## When the address follows the name
+ *
+ * A file manager renames the folder and its path together. A gallery cannot
+ * always do that: the address is what an artist sends a client, and silently
+ * changing it turns a shared link into a 404 — the kind of breakage nobody
+ * discovers until someone else does.
+ *
+ * So the slug moves only when both are true:
+ *
+ * - **The collection has no photographs.** There is nothing at that address
+ *   worth linking to; the page reads "still being prepared".
+ * - **The slug still matches the old title.** If they differ, the artist set
+ *   the address by hand on the collection's own page, and that is a decision to
+ *   respect rather than overwrite.
+ *
+ * Which covers the case this exists for — create, name it, then upload — and
+ * leaves every established collection's address exactly where it was.
+ * Deliberate address changes stay on the collection's settings page, where the
+ * field is visible and the consequence can be spelled out.
+ */
+export function renameCollection(
+	user: User,
+	id: string,
+	title: string,
+	runner: Runner = db
+): { slug: string; renamed: boolean } {
+	const trimmed = title.trim() || DEFAULT_TITLE;
+	if (trimmed.length > 200) throw new CollectionInputError('That title is too long.');
+
+	const collection = findOwnedById(user.id, id, runner);
+	if (!collection) throw new CollectionInputError('That collection no longer exists.');
+
+	const { count } = runner
+		.select({ count: sql<number>`count(*)` })
+		.from(photos)
+		.where(eq(photos.collectionId, id))
+		.get() ?? { count: 0 };
+
+	/**
+	 * Whether the address was chosen by the artist or generated from the title.
+	 *
+	 * Not simply `slug === slugify(title)`, because `uniqueSlug` appends `-2`,
+	 * `-3` when the obvious address is already taken. Making two collections
+	 * without naming the first leaves the second at `new-collection-2`, which is
+	 * every bit as automatic as `new-collection` — and treating it as
+	 * hand-chosen would strand it there, titled one thing and addressed another.
+	 */
+	const base = slugify(collection.title);
+	const suffixed = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+$`);
+	const untouchedAddress =
+		base !== '' && (collection.slug === base || suffixed.test(collection.slug));
+	let slug = collection.slug;
+
+	if (count === 0 && untouchedAddress) {
+		const wanted = slugify(trimmed);
+		// A title that slugifies to nothing at all, or to a reserved word, leaves
+		// the address alone rather than inventing one.
+		if (wanted && !isReservedSlug(wanted)) {
+			slug = uniqueSlug(trimmed, (candidate) =>
+				slugTaken(user.id, candidate, { exceptId: id, runner })
+			);
+		}
+	}
+
+	updateCollection(id, { title: trimmed, slug }, runner);
+	return { slug, renamed: slug !== collection.slug };
 }

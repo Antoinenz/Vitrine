@@ -23,23 +23,55 @@ async function signIn(page: Page) {
 
 test('a visitor sees no owner controls', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('button', { name: 'New collection' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'New collection', exact: true })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Edit profile' })).toHaveCount(0);
 });
 
-test('the artist creates a collection without leaving the gallery', async ({ page }) => {
+test('the artist creates a collection and names it in place', async ({ page }) => {
 	await signIn(page);
 
 	// Same page, same stacks — the controls are additions, not a separate screen.
 	await expect(page.locator('.stack').first()).toBeVisible();
 
-	await page.getByRole('button', { name: 'New collection' }).click();
-	await page.getByLabel('Title').fill('Inline Made');
-	await page.getByRole('button', { name: 'Create' }).click();
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
 
-	// Straight into the new collection, which is empty and wants photographs.
-	await expect(page).toHaveURL('/c/inline-made');
-	await expect(page.getByRole('heading', { name: 'Inline Made' })).toBeVisible();
+	// The gesture being copied: a tile appears here, with its name selected, and
+	// the artist never leaves the page.
+	const field = page.getByRole('textbox', { name: 'Collection name' });
+	await expect(field).toBeFocused();
+	await expect(page).toHaveURL('/');
+
+	await field.fill('Inline Made');
+	await field.press('Enter');
+
+	await expect(page.getByRole('button', { name: 'Rename Inline Made' })).toBeVisible();
+
+	// The address follows the name while the collection is still empty.
+	await expect(await page.request.get('/c/inline-made')).toBeOK();
+});
+
+test('pressing Enter straight away keeps the default name', async ({ page }) => {
+	await signIn(page);
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
+
+	// A file manager keeps "New folder" here rather than refusing. Creating is
+	// one click, so accepting what it made must be one key.
+	await page.getByRole('textbox', { name: 'Collection name' }).press('Enter');
+
+	// "Rename New collection", so it cannot be confused with the button in the
+	// owner bar that makes them.
+	await expect(page.getByRole('button', { name: 'Rename New collection' }).first()).toBeVisible();
+});
+
+test('Escape abandons the rename without writing anything', async ({ page }) => {
+	await signIn(page);
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
+
+	const field = page.getByRole('textbox', { name: 'Collection name' });
+	await field.fill('Typed But Discarded');
+	await field.press('Escape');
+
+	await expect(page.getByText('Typed But Discarded')).toHaveCount(0);
 });
 
 test('a collection created inline is private, so it stays off the public page', async ({
@@ -47,14 +79,13 @@ test('a collection created inline is private, so it stays off the public page', 
 	browser
 }) => {
 	await signIn(page);
-	await page.getByRole('button', { name: 'New collection' }).click();
-	await page.getByLabel('Title').fill('Not Yet Published');
-	await page.getByRole('button', { name: 'Create' }).click();
-	await expect(page).toHaveURL('/c/not-yet-published');
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
+	const field = page.getByRole('textbox', { name: 'Collection name' });
+	await field.fill('Not Yet Published');
+	await field.press('Enter');
 
 	// The owner sees it on their own page — otherwise a collection they just made
 	// would vanish and there would be no way back to it.
-	await page.goto('/');
 	await expect(page.getByText('Not Yet Published')).toBeVisible();
 
 	// A visitor does not.
@@ -63,17 +94,6 @@ test('a collection created inline is private, so it stays off the public page', 
 	await anonPage.goto('/');
 	await expect(anonPage.getByText('Not Yet Published')).toHaveCount(0);
 	await anon.close();
-});
-
-test('an empty title is refused with a message, not silently', async ({ page }) => {
-	await signIn(page);
-	await page.getByRole('button', { name: 'New collection' }).click();
-
-	// The field is `required`, so the browser blocks submission — which is the
-	// behaviour worth pinning: no request, no navigation, and the modal stays.
-	await page.getByRole('button', { name: 'Create' }).click();
-	await expect(page).toHaveURL('/');
-	await expect(page.getByLabel('Title')).toBeVisible();
 });
 
 test('the profile modal saves and the page reflects it immediately', async ({ page }) => {
