@@ -3,110 +3,117 @@
  * Summarises a Chrome DevTools performance trace.
  *
  * Written because the motion problems in this app are not in JavaScript. A CPU
- * profile of a collection opening is 70% idle with no function above 0.7%, so
- * the cost is raster, decode, layout and paint — work a console script cannot
+ * profile of a collection opening is 70% idle with no function above 0.7%,
+ * because the cost is raster, decode and paint — work a console script cannot
  * see and a CPU profile attributes to nothing. A trace does show it, and this
- * pulls out the parts that matter rather than making someone read 200 MB of
- * JSON.
+ * pulls out the parts that matter rather than making someone read it by hand.
  *
- *   node scripts/trace-report.mjs <trace.json> [--anchor visible|click|<ms>]
+ *   node scripts/trace-report.mjs <trace.json>              # timeline, to find the moment
+ *   node scripts/trace-report.mjs <trace.json> --at 42300   # what happened around it
  *
- * Anchoring matters: "is the page slow" is the wrong question, "what is it
- * doing in the two seconds after I come back to the tab" is the right one. By
- * default it anchors on the last `visibilitychange` back to visible, falling
- * back to the start of the trace.
+ * ## Why this streams
+ *
+ * The first real trace anyone handed me was 172 MB, for 109 seconds of
+ * recording with screenshots already turned off. `JSON.parse` on that wants
+ * something like 2 GB, which is more than the machine it runs on has. Traces are
+ * large by nature — tens of thousands of events a second across a dozen threads
+ * — so the event array is read a chunk at a time and only aggregates are kept.
+ * Memory stays flat however long the recording ran.
  */
 
-import { readFileSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
 
 const [, , file, ...rest] = process.argv;
 if (!file) {
-	console.error('usage: node scripts/trace-report.mjs <trace.json> [--anchor visible|click|<ms>]');
+	console.error('usage: node scripts/trace-report.mjs <trace.json> [--at <ms>] [--window <ms>]');
 	process.exit(1);
 }
 
-const anchorArg = rest.includes('--anchor') ? rest[rest.indexOf('--anchor') + 1] : 'visible';
-
-const raw = JSON.parse(readFileSync(file, 'utf8'));
-const events = Array.isArray(raw) ? raw : (raw.traceEvents ?? []);
-if (events.length === 0) {
-	console.error('no trace events found — is this a DevTools performance trace?');
-	process.exit(1);
-}
-
-/** Complete events are the ones carrying a duration; everything else is a marker. */
-const complete = events.filter((e) => e.ph === 'X' && typeof e.dur === 'number');
-const t0 = Math.min(...complete.map((e) => e.ts));
-const tEnd = Math.max(...complete.map((e) => e.ts + e.dur));
-const ms = (ts) => (ts - t0) / 1000;
-
-/** Threads, so raster and GPU work is not mixed in with the main thread's. */
-const threadNames = new Map();
-for (const e of events) {
-	if (e.ph === 'M' && e.name === 'thread_name') {
-		threadNames.set(`${e.pid}:${e.tid}`, e.args?.name ?? '?');
-	}
-}
-const threadOf = (e) => threadNames.get(`${e.pid}:${e.tid}`) ?? 'unknown';
-
-// ---------------------------------------------------------------- anchor
-
-function findAnchor() {
-	if (/^\d+$/.test(anchorArg)) return Number(anchorArg);
-
-	if (anchorArg === 'visible') {
-		/**
-		 * The return to the tab. Chrome records this in more than one shape
-		 * depending on version, so several are tried before giving up.
-		 */
-		const candidates = events.filter(
-			(e) =>
-				e.args?.data?.type === 'visibilitychange' ||
-				e.name === 'WebContentsImpl::WasShown' ||
-				(e.name === 'EventDispatch' && e.args?.data?.type === 'visibilitychange')
-		);
-		if (candidates.length) return ms(candidates[candidates.length - 1].ts);
-	}
-
-	if (anchorArg === 'click') {
-		const click = events.filter(
-			(e) => e.name === 'EventDispatch' && e.args?.data?.type === 'click'
-		);
-		if (click.length) return ms(click[click.length - 1].ts);
-	}
-
-	return 0;
-}
-
-const anchor = findAnchor();
-
-// ---------------------------------------------------------------- buckets
+const flag = (name, fallback) => {
+	const i = rest.indexOf(name);
+	return i === -1 ? fallback : Number(rest[i + 1]);
+};
+const focus = flag('--at', null);
+const windowMs = flag('--window', 2000);
 
 /**
- * What each kind of work is called in a trace.
+ * Yields each object in the `traceEvents` array without holding the file.
  *
- * Grouped by what a person would want to know rather than by Chrome's own
- * taxonomy, because "is this raster or decode" is the question that decides
- * what to change.
+ * Object boundaries are found by brace depth, tracking string state so that a
+ * brace inside a URL or a function name cannot end an object early.
  */
+async function* traceEvents(path) {
+	const stream = createReadStream(path, { encoding: 'utf8', highWaterMark: 1 << 20 });
+
+	let buf = '';
+	let scanFrom = 0;
+	let started = false;
+	let depth = 0;
+	let objStart = -1;
+	let inString = false;
+	let escaped = false;
+
+	for await (const chunk of stream) {
+		buf += chunk;
+
+		if (!started) {
+			const key = buf.indexOf('"traceEvents"');
+			const open = key === -1 ? -1 : buf.indexOf('[', key);
+			if (open === -1) {
+				// Keep a tail, so the key can straddle two chunks.
+				if (buf.length > 64) buf = buf.slice(-64);
+				continue;
+			}
+			buf = buf.slice(open + 1);
+			scanFrom = 0;
+			started = true;
+		}
+
+		let i = scanFrom;
+		for (; i < buf.length; i++) {
+			const c = buf[i];
+
+			if (inString) {
+				if (escaped) escaped = false;
+				else if (c === '\\') escaped = true;
+				else if (c === '"') inString = false;
+				continue;
+			}
+
+			if (c === '"') inString = true;
+			else if (c === '{') {
+				if (depth === 0) objStart = i;
+				depth++;
+			} else if (c === '}') {
+				depth--;
+				if (depth === 0 && objStart >= 0) {
+					yield JSON.parse(buf.slice(objStart, i + 1));
+					objStart = -1;
+				}
+			} else if (c === ']' && depth === 0) {
+				return;
+			}
+		}
+
+		// Carry forward only an unfinished object; everything else is spent.
+		if (depth > 0 && objStart >= 0) {
+			buf = buf.slice(objStart);
+			scanFrom = buf.length;
+			objStart = 0;
+		} else {
+			buf = '';
+			scanFrom = 0;
+		}
+	}
+}
+
 const GROUPS = {
-	'image decode': ['ImageDecodeTask', 'Decode Image', 'ImageDecodeTaskImpl', 'Decode LazyPixelRef'],
+	'image decode': ['ImageDecodeTask', 'Decode Image', 'Decode LazyPixelRef', 'Draw LazyPixelRef'],
 	raster: ['RasterTask', 'Rasterize', 'RasterizerTaskImpl'],
-	'layout & style': [
-		'Layout',
-		'UpdateLayoutTree',
-		'ParseAuthorStyleSheet',
-		'ScheduledStyleRecalculation'
-	],
-	paint: ['Paint', 'PrePaint', 'PaintImage'],
-	'composite & commit': [
-		'CompositeLayers',
-		'Commit',
-		'ActivateLayerTree',
-		'ProxyImpl::ScheduledActionCommit',
-		'LayerTreeHostImpl::PrepareToDraw'
-	],
-	'gpu upload': ['GPUTask', 'TransferToGPU', 'UploadTexture', 'gpu::gles2', 'SkiaGpu'],
+	'layout & style': ['Layout', 'UpdateLayoutTree', 'ParseAuthorStyleSheet'],
+	paint: ['Paint', 'PrePaint'],
+	'composite & commit': ['CompositeLayers', 'Commit', 'ActivateLayerTree', 'LayerTreeHostImpl'],
+	'gpu upload': ['GPUTask', 'TransferToGPU', 'UploadTexture', 'gpu::', 'SkiaGpu'],
 	javascript: [
 		'FunctionCall',
 		'EvaluateScript',
@@ -114,28 +121,23 @@ const GROUPS = {
 		'RunMicrotasks',
 		'MajorGC',
 		'MinorGC'
-	],
-	'frame work': ['BeginMainThreadFrame', 'DrawFrame', 'BeginFrame']
+	]
 };
 
 /**
- * Task wrappers, excluded from the per-event list.
- *
- * Every piece of work on a thread is nested inside one of these, so they always
- * top the list by duration while saying nothing about what was slow. Their
- * total is roughly "how busy was this thread", which the thread summary above
- * already gives.
+ * Task wrappers. Every piece of work nests inside one, so they always top a
+ * duration ranking while saying nothing about what was slow.
  */
 const WRAPPERS = new Set([
 	'RunTask',
 	'ThreadControllerImpl::RunTask',
 	'ThreadPool_RunTask',
 	'TaskGraphRunner::RunTask',
-	'ThreadControllerImpl::RunTask::ThreadControllerActive',
 	'Receive mojo message',
 	'SimpleWatcher::OnHandleReady',
 	'EpollEvent',
-	'MessagePumpLibevent::Run'
+	'MessagePumpLibevent::Run',
+	'ThreadControllerImpl::RunTask::ThreadControllerActive'
 ]);
 
 function groupOf(name) {
@@ -145,106 +147,152 @@ function groupOf(name) {
 	return null;
 }
 
-function summarise(from, to, label) {
-	const inWindow = complete.filter((e) => {
-		const start = ms(e.ts);
-		return start >= from && start <= to;
-	});
+// ---------------------------------------------------------------- collect
 
-	const byGroup = new Map();
-	const byName = new Map();
-	for (const e of inWindow) {
+const threadNames = new Map();
+const bins = new Map();
+const droppedBySecond = new Map();
+const dropped = [];
+const markers = [];
+const threadTotals = new Map();
+const focusNames = new Map();
+const focusGroups = new Map();
+const focusLong = [];
+
+let minTs = Infinity;
+let maxTs = -Infinity;
+let count = 0;
+
+for await (const e of traceEvents(file)) {
+	count++;
+
+	if (e.ph === 'M' && e.name === 'thread_name') {
+		threadNames.set(`${e.pid}:${e.tid}`, e.args?.name ?? '?');
+		continue;
+	}
+
+	if (typeof e.ts !== 'number' || e.ts === 0) continue;
+	if (e.ts < minTs) minTs = e.ts;
+	if (e.ts > maxTs) maxTs = e.ts;
+
+	const second = Math.floor(e.ts / 1e6);
+
+	if (e.name === 'DroppedFrame') {
+		dropped.push(e.ts);
+		droppedBySecond.set(second, (droppedBySecond.get(second) ?? 0) + 1);
+		continue;
+	}
+
+	const type = e.args?.data?.type;
+	if (type === 'visibilitychange' || type === 'click') markers.push([e.ts, type]);
+	else if (e.name === 'navigationStart') markers.push([e.ts, 'navigation']);
+
+	if (e.ph !== 'X' || typeof e.dur !== 'number') continue;
+
+	const d = e.dur / 1000;
+	threadTotals.set(`${e.pid}:${e.tid}`, (threadTotals.get(`${e.pid}:${e.tid}`) ?? 0) + d);
+
+	const group = groupOf(e.name);
+	if (group) {
+		let row = bins.get(second);
+		if (!row) bins.set(second, (row = new Map()));
+		row.set(group, (row.get(group) ?? 0) + d);
+	}
+}
+
+const ms = (ts) => (ts - minTs) / 1000;
+const base = Math.floor(minTs / 1e6);
+
+/**
+ * A second pass rather than a buffer.
+ *
+ * The window is expressed relative to the trace's start, and the start is only
+ * known once the whole file has been read — so keeping candidate events during
+ * the first pass would mean keeping nearly all of them, which is the thing this
+ * script exists to avoid. Reading 172 MB twice costs a few seconds of I/O and no
+ * memory at all.
+ */
+if (focus !== null) {
+	for await (const e of traceEvents(file)) {
+		if (e.ph !== 'X' || typeof e.dur !== 'number') continue;
+		const at = ms(e.ts);
+		if (at < focus || at > focus + windowMs) continue;
+
 		const d = e.dur / 1000;
-		const g = groupOf(e.name);
-		if (g) byGroup.set(g, (byGroup.get(g) ?? 0) + d);
-		byName.set(e.name, (byName.get(e.name) ?? 0) + d);
-	}
-
-	console.log(`\n=== ${label} (${from.toFixed(0)}ms → ${to.toFixed(0)}ms) ===`);
-
-	const groups = [...byGroup].sort((a, b) => b[1] - a[1]);
-	if (groups.length === 0) {
-		console.log('  nothing recorded in this window');
-		return;
-	}
-	console.log('  by kind of work (total ms across all threads):');
-	for (const [g, d] of groups) console.log('   ', d.toFixed(0).padStart(7) + 'ms', g);
-
-	console.log('  busiest individual events:');
-	for (const [n, d] of [...byName]
-		.filter(([n]) => !WRAPPERS.has(n))
-		.sort((a, b) => b[1] - a[1])
-		.slice(0, 12)) {
-		console.log('   ', d.toFixed(0).padStart(7) + 'ms', n);
-	}
-
-	/**
-	 * The symptom itself, rather than a proxy for it. Chrome records a
-	 * `DroppedFrame` when it fails to present one, so this is the line that says
-	 * whether a window actually stuttered or was merely busy.
-	 */
-	const dropped = events.filter(
-		(e) => e.name === 'DroppedFrame' && ms(e.ts) >= from && ms(e.ts) <= to
-	);
-	console.log(`  dropped frames: ${dropped.length}`);
-	if (dropped.length) {
-		console.log('   at ' + dropped.map((e) => `${(ms(e.ts) - anchor).toFixed(0)}ms`).join(' '));
-	}
-
-	const longest = inWindow
-		.filter((e) => e.dur > 20000 && !WRAPPERS.has(e.name))
-		.sort((a, b) => b.dur - a.dur)
-		.slice(0, 10);
-	if (longest.length) {
-		console.log('  single events over 20ms:');
-		for (const e of longest) {
-			console.log(
-				'   ',
-				(e.dur / 1000).toFixed(0).padStart(6) + 'ms',
-				`at ${ms(e.ts).toFixed(0)}ms`.padEnd(12),
-				e.name.slice(0, 34).padEnd(36),
-				threadOf(e).slice(0, 24)
-			);
+		const group = groupOf(e.name);
+		if (group) focusGroups.set(group, (focusGroups.get(group) ?? 0) + d);
+		if (!WRAPPERS.has(e.name)) {
+			focusNames.set(e.name, (focusNames.get(e.name) ?? 0) + d);
+			if (e.dur > 15000) focusLong.push(e);
 		}
 	}
 }
 
-// ---------------------------------------------------------------- output
+// ---------------------------------------------------------------- report
 
-console.log(`trace: ${file}`);
-console.log(`events: ${events.length}, span: ${ms(tEnd).toFixed(0)}ms`);
-console.log(`anchor (${anchorArg}): ${anchor.toFixed(0)}ms`);
+console.log(`trace:  ${file}`);
+console.log(`events: ${count.toLocaleString()}, span: ${(ms(maxTs) / 1000).toFixed(1)}s`);
+console.log(`dropped frames: ${dropped.length}`);
 
-const threads = new Map();
-for (const e of complete) {
-	const name = threadOf(e);
-	threads.set(name, (threads.get(name) ?? 0) + e.dur / 1000);
-}
-console.log('\nbusiest threads over the whole trace:');
-for (const [n, d] of [...threads].sort((a, b) => b[1] - a[1]).slice(0, 8)) {
-	console.log('   ', d.toFixed(0).padStart(7) + 'ms', n);
+console.log('\nbusiest threads (total ms of recorded work):');
+for (const [k, d] of [...threadTotals].sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+	console.log('   ', d.toFixed(0).padStart(8) + 'ms', threadNames.get(k) ?? k);
 }
 
-if (anchor > 0) summarise(anchor - 1000, anchor, 'the second BEFORE the anchor');
-summarise(anchor, anchor + 2000, 'the 2s AFTER the anchor');
-summarise(anchor + 2000, anchor + 6000, '2s to 6s after the anchor');
+if (markers.length) {
+	console.log('\nmarkers:');
+	for (const [ts, name] of markers.slice(0, 40)) {
+		console.log('   ', (ms(ts) / 1000).toFixed(2).padStart(8) + 's', name);
+	}
+	if (markers.length > 40) console.log(`    … and ${markers.length - 40} more`);
+}
 
-/**
- * Long frames, as the compositor saw them.
- *
- * The user-visible symptom is dropped frames, so this is the line that says
- * whether a window was actually janky rather than merely busy.
- */
-const draws = events
-	.filter((e) => e.name === 'DrawFrame' || e.name === 'BeginFrame')
-	.map((e) => ms(e.ts))
-	.sort((a, b) => a - b);
-if (draws.length > 1) {
-	const gaps = [];
-	for (let i = 1; i < draws.length; i++) gaps.push([draws[i], draws[i] - draws[i - 1]]);
-	const bad = gaps.filter(([at, g]) => g > 25 && at >= anchor && at <= anchor + 8000);
-	console.log(`\nframe gaps over 25ms in the 8s after the anchor: ${bad.length}`);
+console.log('\nper-second timeline — "drop" is frames Chrome failed to present');
+console.log('   time   drop   raster  decode  layout   paint  compos     gpu      js');
+const seconds = [...new Set([...bins.keys(), ...droppedBySecond.keys()])].sort((a, b) => a - b);
+for (const s of seconds) {
+	const row = bins.get(s) ?? new Map();
+	const drop = droppedBySecond.get(s) ?? 0;
+	const busy = [...row.values()].reduce((a, b) => a + b, 0);
+	if (drop === 0 && busy < 5) continue;
+	const cell = (g) => (row.get(g) ?? 0).toFixed(0).padStart(7);
 	console.log(
-		'  ' + bad.map(([at, g]) => `${(at - anchor).toFixed(0)}:${g.toFixed(0)}ms`).join(' ')
+		'  ' + `${s - base}s`.padStart(5),
+		String(drop).padStart(5),
+		cell('raster'),
+		cell('image decode'),
+		cell('layout & style'),
+		cell('paint'),
+		cell('composite & commit'),
+		cell('gpu upload'),
+		cell('javascript')
 	);
+}
+
+if (focus !== null) {
+	console.log(`\n=== ${focus}ms → ${focus + windowMs}ms ===`);
+	console.log('  by kind of work:');
+	for (const [g, d] of [...focusGroups].sort((a, b) => b[1] - a[1])) {
+		console.log('   ', d.toFixed(0).padStart(7) + 'ms', g);
+	}
+	console.log('  busiest events:');
+	for (const [n, d] of [...focusNames].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+		console.log('   ', d.toFixed(0).padStart(7) + 'ms', n);
+	}
+	console.log(
+		`  dropped frames: ${dropped.filter((ts) => ms(ts) >= focus && ms(ts) <= focus + windowMs).length}`
+	);
+	const long = focusLong.sort((a, b) => b.dur - a.dur).slice(0, 12);
+	if (long.length) {
+		console.log('  single events over 15ms:');
+		for (const e of long) {
+			console.log(
+				'   ',
+				(e.dur / 1000).toFixed(0).padStart(6) + 'ms',
+				`at ${ms(e.ts).toFixed(0)}ms`.padEnd(12),
+				e.name.slice(0, 32).padEnd(34),
+				(threadNames.get(`${e.pid}:${e.tid}`) ?? '?').slice(0, 22)
+			);
+		}
+	}
 }
