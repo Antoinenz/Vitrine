@@ -26,7 +26,7 @@ Early development. It works end to end and it has been run in anger by exactly o
 | Photo viewer — keys, filmstrip, zoom, details   | ✅ Solid                                                    |
 | Downloads, collection ZIP, metadata control     | ✅ Solid                                                    |
 | Capture-date ordering, sitemap, link previews   | ✅ Solid                                                    |
-| Stack → grid transition, 3D hover               | ⚠️ Works, still stutters on slower machines                 |
+| Stack → grid transition, 3D hover               | ✅ Solid — see the note on browser extensions below         |
 | Uploading                                       | ⚠️ Works, not production ready — needs failure handling     |
 | Collection and photo management                 | ⚠️ Works, not production ready — thin and awkward in places |
 | Reordering photographs within a collection      | ✅ Drag to arrange                                          |
@@ -36,6 +36,10 @@ Early development. It works end to end and it has been run in anger by exactly o
 | Watermarking                                    | ⬜ Planned                                                  |
 | Collaborator accounts                           | ⬜ Considering                                              |
 | Open multi-tenant hosting                       | ❌ Not planned — see below                                  |
+
+### A note on browser extensions
+
+A gallery is an unusually hostile page for extensions that attach to images, and there is nothing on these pages but images. One measured at 150–300ms of JavaScript per photograph, which is enough to make the motion stutter whenever images load. If Vitrine feels rough, check an incognito window before believing it is Vitrine. See [configuration → troubleshooting](CONFIGURATION.md#troubleshooting).
 
 ## Planned
 

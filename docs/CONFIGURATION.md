@@ -163,3 +163,13 @@ Take a backup first. Migrations run forward only; there is no down-migration pat
 **Signing in appears to do nothing, with no error.** The browser is discarding the session cookie. Two known causes: a `Secure` cookie served over plain HTTP, and a server clock far enough out that the cookie arrives already expired. Both are handled now — the flag follows the request scheme, and lifetime is sent as a duration rather than an absolute date — but if you see it, check `date` on the server.
 
 **Photographs stay pending.** The worker picks up anything stranded at startup, so restart first. If they fail repeatedly, the file may be a format `sharp` can't decode.
+
+**The gallery feels janky — check your browser extensions first.**
+
+A gallery is an unusually hostile page for extensions that attach to images: right-click image tools, downloaders, reverse-image-search helpers, ad blockers with heavy image rules. They hook every `<img>` on the page, and here there is nothing but images.
+
+One such extension was measured running **150–300ms of JavaScript per photograph**, on each image's `load` event. That is enough to make the stacks stutter every time images load — which is to say when a collection is opened, and again when you return to a tab the browser has unloaded images from. The signature is distinctive: rough while photographs are arriving, perfectly smooth once they have, rough again on the next collection.
+
+Test it in an incognito window, where extensions are disabled by default. If it's smooth there, it's an extension, not the gallery.
+
+Two things that make this hard to spot. It follows you across machines if your browser syncs extensions, so "it's slow on my other computer too" doesn't rule it out. And a CPU profile is little help — the work looks like idle time attributed to nothing. `scripts/trace-report.mjs` reads a saved DevTools performance trace and attributes JavaScript by owning script, which is what identified it.

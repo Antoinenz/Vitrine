@@ -3,26 +3,29 @@ import { browser } from '$app/environment';
 /**
  * When ambient motion is allowed to run.
  *
- * ## The problem this exists for
+ * Motion stops when the page is hidden, because no frames are being shown and
+ * none are worth computing. It then waits for the page to be drawn once, and a
+ * beat longer, before resuming: coming back to a tab is a rebuild rather than a
+ * resume, since Chrome releases rasterised tiles and decoded images for a
+ * background tab, and there is nothing to gain by animating through that.
  *
- * A backgrounded tab is not simply a paused one. Chrome stops calling
- * `requestAnimationFrame`, and — for a tab it considers expensive — releases the
- * rasterised tiles and decoded images backing it. Coming back is therefore not a
- * resume but a rebuild: every promoted layer has to be rastered again and every
- * photograph decoded again, which on a page of stacked prints is a great deal of
- * work crammed into the first few hundred milliseconds after the tab reappears.
+ * The delay is free. A stack that starts swaying a third of a second after you
+ * look at it is indistinguishable from one that never stopped.
  *
- * That rebuild is what the stutter on return actually is. Animating *through* it
- * makes it worse twice over: the ambient sway asks the compositor for new frames
- * while it is still rebuilding the old ones, and those frames are the ones a
- * visitor is looking straight at, so every dropped one is visible.
+ * ## What this is not
  *
- * So motion stops when the page is hidden — no frames are shown, so none are
- * worth computing — and does not start again the instant it returns. It waits
- * for the page to be drawn once, and then a beat longer, and only then resumes.
- * The delay costs nothing: a stack that begins swaying a third of a second after
- * you look at it is indistinguishable from one that was always swaying, whereas
- * one that stutters for five seconds is not.
+ * This was written to fix a reported stutter of several seconds on returning to
+ * a backgrounded tab. **It was not the cause and this did not fix it.** A trace
+ * eventually put the six seconds after the tab returned at 4,659ms of
+ * JavaScript, 197 dropped frames and 23ms of raster — and most of that
+ * JavaScript belonged to a browser extension that hooks every image's `load`
+ * event, running 150–300ms per photograph as the page reloaded them.
+ *
+ * Recorded here because the reasoning above is plausible, tidy, and was arrived
+ * at twice by two different routes without either being right. It justifies the
+ * code on its own terms — do not animate what nobody is looking at — and that
+ * is the only claim it should be read as making. If motion feels bad again,
+ * measure before believing anything in this comment.
  */
 
 /**

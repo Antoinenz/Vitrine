@@ -173,9 +173,8 @@ export function stackHover(node: HTMLElement) {
 	observer.observe(node);
 
 	/**
-	 * Stops the sway while the tab is in the background, and — the part that
-	 * matters — keeps it stopped for a moment after the tab comes back, while the
-	 * browser rebuilds what it discarded. See `visibility.ts`.
+	 * Stops the sway while the tab is in the background, and for a moment after
+	 * it comes back. See `visibility.ts` — including what this did *not* fix.
 	 *
 	 * Fires immediately with the current answer, which is what starts the sway on
 	 * a normal page load.

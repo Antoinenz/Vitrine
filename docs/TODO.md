@@ -17,52 +17,58 @@ measured, not guessed.
 
 ## Next
 
-- [ ] **The page-swap stutter.** The largest remaining piece of the transition
-      problem. See [motion and performance](#motion-and-performance).
 - [ ] **Uploading needs failure handling** before anyone else can be told to run
       this. It is the weakest part of the app and the one most likely to lose
       someone's work.
 
 ## Motion and performance
 
-Recently done, for context on what is left:
+**The reported stutter is fixed, and the cause was not in this repository.**
 
-- [x] Ambient sway stops when the tab is hidden, and waits for the page to be
-      repainted before resuming
+A browser extension that hooks every image's `load` event was running 150–300ms
+of JavaScript per photograph. Removing it made the gallery, in the reporter's
+words, "smooth as butter". The trace put the six seconds after returning to a
+backgrounded tab at 4,659ms of JavaScript, 197 dropped frames and **23ms of
+raster** — so every rendering-side theory below was wrong, including two I was
+confident about. Documented for other people's browsers in
+[configuration → troubleshooting](CONFIGURATION.md#troubleshooting).
+
+Shipped along the way, each justified on its own terms rather than by the
+stutter:
+
+- [x] Ambient sway stops when the tab is hidden — no reason to animate what
+      nobody is looking at
 - [x] The grid holds back everything but the photographs in flight until the
       arrival lands, on a collection's first opening
-- [x] The hover warm fetches the image the destination will actually show
+- [x] The hover warm fetches the image the destination will actually show. It
+      had been fetching a 1280px JPEG in place of a 640px WebP, on the strength
+      of a comment asserting the two pages requested identical URLs; measured
+      overlap was zero of nine. Click to hand-over went from ~1776ms to ~1010ms
 
-Still open:
+Still open, but now known to be small:
 
-- [ ] **Frames are still dropped while the destination page is built.** Roughly
-      13 frames over 25ms, worst around 133ms, on a 4×-throttled CPU. A CPU
-      profile over the whole opening is **70% idle and 15% "(program)"**, with no
-      JavaScript function above 0.7% — so this is layout, paint, raster and
-      decode, not scripting. Optimising JavaScript here will do nothing; the
-      question is how much rendering work the destination page asks for in its
-      first frame.
+- [ ] **Frames dropped while the destination page is built.** Around 13 frames
+      over 25ms on a 4×-throttled CPU. Real, but an order of magnitude below
+      what the extension was costing, and nobody has complained about it. Do not
+      start here.
 
 - [ ] **Idle compositor cost on the artist page.** Every visible card runs an
-      infinite GSAP `rotation` tween, which is a main-thread write plus a
-      composite for every card on every frame — a few percent of GPU while the
-      page sits there doing nothing, and part of why Chrome may treat the tab as
-      expensive. Worth trying: move the sway to a CSS `@keyframes` animation on
-      the independent `rotate` property, which runs on the compositor and needs
-      no main thread at all. `rotate` is a separate property from `transform`,
-      so it would not collide with GSAP's magnet — but `resetTilt` would need to
-      neutralise it before the transition measures anything, which is exactly
-      the kind of detail that breaks the flight if it is got wrong.
-
-- [ ] **Consider `content-visibility: auto` on off-screen collections.** Would
-      cut layout and raster work on a long artist page, and reduce what has to
-      be rebuilt when a backgrounded tab returns. Note that it implies paint
-      containment, which may clip the hover fan — check before adopting.
+      infinite GSAP `rotation` tween — a main-thread write and a composite per
+      card per frame, a few percent of GPU while the page sits still. Worth
+      trying: a CSS `@keyframes` animation on the independent `rotate` property,
+      which runs on the compositor with no main thread at all, and does not
+      collide with GSAP's `transform`. `resetTilt` would have to neutralise it
+      before the transition measures anything.
 
 - [ ] **The flight still waits on `decode()` with an 800ms cap.** Much less
-      often now that the right image is warmed, but a cold, slow connection
-      still parks the ghosts. Consider starting the flight immediately and
-      gating only the hand-off on the destination being ready.
+      often now the right image is warmed, but a cold connection still parks the
+      ghosts. Consider starting the flight immediately and gating only the
+      hand-off.
+
+**Before optimising anything here, take a trace.** `scripts/trace-report.mjs`
+streams a saved DevTools profile and attributes JavaScript by owning script. The
+first two diagnoses on this problem were reasoned rather than measured, and both
+were wrong.
 
 ## Uploading and management
 
