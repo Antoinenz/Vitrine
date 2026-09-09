@@ -18,7 +18,8 @@ measured, not guessed.
 ## Next
 
 - [ ] **Admin UI overhaul** — planned in
-      [design/admin-ui.md](design/admin-ui.md). Stage 1, the trash, is done:
+      [design/admin-ui.md](design/admin-ui.md). Stages 1 and 2 are done and
+      deployed: the trash, and creating and renaming in place. Stage 1 was:
       discard, restore, purge on a thirty-day retention, and one enforced
       reader for the collections table. Next is **stage 2, inline create and
       rename** — the File Explorer text gesture — then the context menu,

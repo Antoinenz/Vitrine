@@ -163,9 +163,12 @@ does today.
 
 Each stage ships on its own.
 
-1. **Trash** — schema, the single read path and its guard test, a trash view,
-   restore, purge, retention.
-2. **Inline create and rename** — the Explorer text gesture, plus `F2`.
+1. ~~**Trash** — schema, the single read path and its guard test, a trash view,
+   restore, purge, retention.~~ Done.
+2. ~~**Inline create and rename** — the Explorer text gesture, plus `F2`.~~
+   Done. One thing settled while building it: renaming moves the address only
+   while the collection is empty and its slug was generated rather than chosen,
+   because the address is what gets sent to a client.
 3. **Chrome and context menu** — three-dots, badge, right-click, the visibility
    dialog, properties.
 4. **Reorder** — jiggle on `rotate`, drag and drop, the automatic switch to
