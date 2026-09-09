@@ -3,12 +3,13 @@ import { Readable } from 'node:stream';
 import { desc, eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { photos, collections } from '$lib/server/db/schema';
+import { photos } from '$lib/server/db/schema';
 import { requireOwnerApi, requireOwnedCollectionBySlug } from '$lib/server/guards';
 import { storeOriginal, UploadTooLargeError } from '$lib/server/storage';
 import { keyBetween } from '$lib/server/sort-key';
 import { schedule } from '$lib/server/images/worker';
 import { MAX_UPLOAD_BYTES } from '$lib/server/config';
+import { updateCollection } from '$lib/server/collections';
 
 /**
  * Receives one photo per request, as a raw body.
@@ -100,15 +101,9 @@ export const POST: RequestHandler = async (event) => {
 
 		// The first photo uploaded becomes the cover until the artist picks one.
 		if (!collection.coverPhotoId) {
-			tx.update(collections)
-				.set({ coverPhotoId: id, updatedAt: new Date() })
-				.where(eq(collections.id, collection.id))
-				.run();
+			updateCollection(collection.id, { coverPhotoId: id }, tx);
 		} else {
-			tx.update(collections)
-				.set({ updatedAt: new Date() })
-				.where(eq(collections.id, collection.id))
-				.run();
+			updateCollection(collection.id, {}, tx);
 		}
 	});
 

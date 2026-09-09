@@ -1,20 +1,17 @@
 import { error, redirect } from '@sveltejs/kit';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { collections, profiles, users } from '$lib/server/db/schema';
+import { profiles, users } from '$lib/server/db/schema';
 import { collectionAccess } from '$lib/server/access';
 import { loadCollectionPhotos } from '$lib/server/photos';
+import { findBySlug } from '$lib/server/collections';
 
 export const load: PageServerLoad = async ({ params, locals, cookies, url }) => {
 	const owner = db.select().from(users).orderBy(asc(users.createdAt)).limit(1).get();
 	if (!owner) error(404);
 
-	const collection = db
-		.select()
-		.from(collections)
-		.where(and(eq(collections.ownerId, owner.id), eq(collections.slug, params.slug)))
-		.get();
+	const collection = findBySlug(owner.id, params.slug);
 
 	// 404 rather than 403 for a missing *or* forbidden collection, so probing
 	// slugs can't distinguish "private" from "doesn't exist".

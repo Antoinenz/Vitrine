@@ -1,9 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import {
-	collections,
 	photos,
 	METADATA_FIELDS,
 	type MetadataField,
@@ -15,6 +14,9 @@ import { hashPassword } from '$lib/server/auth';
 import { retryPhoto } from '$lib/server/images/worker';
 import { keyBetween } from '$lib/server/sort-key';
 import { deleteDerivatives, deleteOriginal } from '$lib/server/storage';
+import { slugTaken } from '$lib/server/collections';
+import { updateCollection } from '$lib/server/collections';
+import { trash, TRASH_RETENTION_DAYS } from '$lib/server/actions/trash';
 
 const VISIBILITIES = new Set<Visibility>(['public', 'unlisted', 'private']);
 
@@ -50,7 +52,9 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 			hasPassword: !!collection.passwordHash
 		},
 		photos: rows,
-		metadataFields: METADATA_FIELDS
+		metadataFields: METADATA_FIELDS,
+		// Policy lives on the server; the page only needs to be able to say it.
+		trashRetentionDays: TRASH_RETENTION_DAYS
 	};
 };
 
@@ -76,18 +80,9 @@ export const actions: Actions = {
 			return fail(400, { message: `"${slug}" is reserved. Choose another address.` });
 		}
 
-		const clash = db
-			.select({ id: collections.id })
-			.from(collections)
-			.where(
-				and(
-					eq(collections.ownerId, user.id),
-					eq(collections.slug, slug),
-					ne(collections.id, collection.id)
-				)
-			)
-			.get();
-		if (clash) return fail(400, { message: `Another collection already uses /c/${slug}.` });
+		if (slugTaken(user.id, slug, { exceptId: collection.id })) {
+			return fail(400, { message: `Another collection already uses /c/${slug}.` });
+		}
 
 		const visibility = String(data.get('visibility') ?? 'private') as Visibility;
 		if (!VISIBILITIES.has(visibility)) return fail(400, { message: 'Unknown visibility.' });
@@ -100,22 +95,18 @@ export const actions: Actions = {
 
 		const wasPublished = collection.publishedAt !== null;
 
-		db.update(collections)
-			.set({
-				title,
-				slug,
-				description: String(data.get('description') ?? '').trim(),
-				visibility,
-				downloadsEnabled: data.get('downloadsEnabled') === 'on',
-				zipEnabled: data.get('zipEnabled') === 'on',
-				stripExifOnDownload: data.get('stripExifOnDownload') === 'on',
-				metadataFields,
-				publishedAt:
-					visibility === 'private' ? null : wasPublished ? collection.publishedAt : new Date(),
-				updatedAt: new Date()
-			})
-			.where(eq(collections.id, collection.id))
-			.run();
+		updateCollection(collection.id, {
+			title,
+			slug,
+			description: String(data.get('description') ?? '').trim(),
+			visibility,
+			downloadsEnabled: data.get('downloadsEnabled') === 'on',
+			zipEnabled: data.get('zipEnabled') === 'on',
+			stripExifOnDownload: data.get('stripExifOnDownload') === 'on',
+			metadataFields,
+			publishedAt:
+				visibility === 'private' ? null : wasPublished ? collection.publishedAt : new Date()
+		});
 
 		return { saved: true };
 	},
@@ -126,10 +117,7 @@ export const actions: Actions = {
 		const data = await request.formData();
 
 		if (data.get('clear') === 'on') {
-			db.update(collections)
-				.set({ passwordHash: null, updatedAt: new Date() })
-				.where(eq(collections.id, collection.id))
-				.run();
+			updateCollection(collection.id, { passwordHash: null });
 			return { saved: true };
 		}
 
@@ -138,10 +126,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Use at least 6 characters for a share password.' });
 		}
 
-		db.update(collections)
-			.set({ passwordHash: await hashPassword(password), updatedAt: new Date() })
-			.where(eq(collections.id, collection.id))
-			.run();
+		updateCollection(collection.id, { passwordHash: await hashPassword(password) });
 
 		return { saved: true };
 	},
@@ -160,10 +145,7 @@ export const actions: Actions = {
 			.get();
 		if (!photo) return fail(404, { message: 'That photo is not in this collection.' });
 
-		db.update(collections)
-			.set({ coverPhotoId: photoId, updatedAt: new Date() })
-			.where(eq(collections.id, collection.id))
-			.run();
+		updateCollection(collection.id, { coverPhotoId: photoId });
 
 		return { saved: true };
 	},
@@ -213,10 +195,7 @@ export const actions: Actions = {
 			return fail(409, { message: 'That order is out of date. Reload and try again.' });
 		}
 
-		db.update(collections)
-			.set({ updatedAt: new Date() })
-			.where(eq(collections.id, collection.id))
-			.run();
+		updateCollection(collection.id, {});
 
 		return { saved: true };
 	},
@@ -279,10 +258,7 @@ export const actions: Actions = {
 					.orderBy(asc(photos.sortKey))
 					.limit(1)
 					.get();
-				tx.update(collections)
-					.set({ coverPhotoId: next?.id ?? null, updatedAt: new Date() })
-					.where(eq(collections.id, collection.id))
-					.run();
+				updateCollection(collection.id, { coverPhotoId: next?.id ?? null }, tx);
 			}
 		});
 
@@ -307,25 +283,13 @@ export const actions: Actions = {
 		const user = requireOwner(locals);
 		const collection = requireOwnedCollection(user.id, params.id);
 
-		const owned = db
-			.select({ id: photos.id, storageKey: photos.storageKey })
-			.from(photos)
-			.where(eq(photos.collectionId, collection.id))
-			.all();
+		/**
+		 * Moved rather than destroyed. This action used to unlink the originals
+		 * from disk behind a confirmation dialog; permanent deletion now lives
+		 * only in the trash, where it takes a second, separate decision.
+		 */
+		trash(user.id, collection.id);
 
-		// Cascades to photos and derivatives via the schema's foreign keys.
-		db.delete(collections).where(eq(collections.id, collection.id)).run();
-
-		for (const photo of owned) {
-			await deleteDerivatives(photo.id);
-			const stillReferenced = db
-				.select({ id: photos.id })
-				.from(photos)
-				.where(eq(photos.storageKey, photo.storageKey))
-				.get();
-			if (!stillReferenced) await deleteOriginal(photo.storageKey);
-		}
-
-		redirect(303, '/admin/collections');
+		redirect(303, '/?trashed=' + encodeURIComponent(collection.title));
 	}
 };

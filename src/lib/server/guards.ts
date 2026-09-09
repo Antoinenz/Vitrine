@@ -1,7 +1,6 @@
 import { redirect, error } from '@sveltejs/kit';
-import { eq, and } from 'drizzle-orm';
-import { db } from './db';
-import { collections, type Collection, type User } from './db/schema';
+import { findOwnedById, findBySlug } from './collections';
+import type { Collection, User } from './db/schema';
 
 /**
  * Authorisation helpers for anything the artist owns.
@@ -68,12 +67,7 @@ export function requireOwnerApi(locals: App.Locals): User {
  * anyone probing ids.
  */
 export function requireOwnedCollection(userId: string, collectionId: string): Collection {
-	const collection = db
-		.select()
-		.from(collections)
-		.where(and(eq(collections.id, collectionId), eq(collections.ownerId, userId)))
-		.get();
-
+	const collection = findOwnedById(userId, collectionId);
 	if (!collection) error(404, 'Collection not found');
 	return collection;
 }
@@ -86,12 +80,7 @@ export function requireOwnedCollection(userId: string, collectionId: string): Co
  * the lookup by owner is what makes this unambiguous.
  */
 export function requireOwnedCollectionBySlug(userId: string, slug: string): Collection {
-	const collection = db
-		.select()
-		.from(collections)
-		.where(and(eq(collections.slug, slug), eq(collections.ownerId, userId)))
-		.get();
-
+	const collection = findBySlug(userId, slug);
 	if (!collection) error(404, 'Collection not found');
 	return collection;
 }

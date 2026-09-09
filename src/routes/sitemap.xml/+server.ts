@@ -1,7 +1,8 @@
-import { asc, eq, and } from 'drizzle-orm';
+import { asc } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { collections, users } from '$lib/server/db/schema';
+import { users } from '$lib/server/db/schema';
+import { listPublicForSitemap } from '$lib/server/collections';
 
 /** Escapes the five characters that are not legal as XML text. */
 function xml(value: string): string {
@@ -27,14 +28,7 @@ export const GET: RequestHandler = ({ url }) => {
 		.limit(1)
 		.get();
 
-	const published = owner
-		? db
-				.select({ slug: collections.slug, updatedAt: collections.updatedAt })
-				.from(collections)
-				.where(and(eq(collections.ownerId, owner.id), eq(collections.visibility, 'public')))
-				.orderBy(asc(collections.sortKey))
-				.all()
-		: [];
+	const published = owner ? listPublicForSitemap(owner.id) : [];
 
 	const entries = [
 		`  <url><loc>${xml(url.origin)}/</loc></url>`,
