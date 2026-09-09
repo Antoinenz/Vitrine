@@ -18,13 +18,11 @@ measured, not guessed.
 ## Next
 
 - [ ] **Admin UI overhaul** — planned in
-      [design/admin-ui.md](design/admin-ui.md). Stage 1 (trash) is done except
-      for the view; next is **a trash view with restore and empty**, then inline
-      create and rename, the context menu, reorder, photo selection.
-
-      Not deployed to the live instance yet, deliberately: trashing works and
-                  restoring works, but with no interface for the trash a discarded
-                  collection can only be brought back from the database by hand.
+      [design/admin-ui.md](design/admin-ui.md). Stage 1, the trash, is done:
+      discard, restore, purge on a thirty-day retention, and one enforced
+      reader for the collections table. Next is **stage 2, inline create and
+      rename** — the File Explorer text gesture — then the context menu,
+      reorder, and photo selection.
 
 - [ ] **Uploading needs failure handling** before anyone else can be told to run
       this. It is the weakest part of the app and the one most likely to lose
