@@ -18,8 +18,14 @@ measured, not guessed.
 ## Next
 
 - [ ] **Admin UI overhaul** — planned in
-      [design/admin-ui.md](design/admin-ui.md). Trash first, then inline create
-      and rename, then the context menu, then reorder, then photo selection.
+      [design/admin-ui.md](design/admin-ui.md). Stage 1 (trash) is done except
+      for the view; next is **a trash view with restore and empty**, then inline
+      create and rename, the context menu, reorder, photo selection.
+
+      Not deployed to the live instance yet, deliberately: trashing works and
+          restoring works, but with no interface for the trash a discarded
+          collection can only be brought back from the database by hand.
+
 - [ ] **Uploading needs failure handling** before anyone else can be told to run
       this. It is the weakest part of the app and the one most likely to lose
       someone's work.
@@ -105,9 +111,13 @@ were wrong.
 - [ ] `docs/screenshots` is about 13 MB of full-resolution PNGs displayed at
       380px. Downscaling to ~1200px would make cloning the repository markedly
       cheaper
-- [ ] The e2e sign-in occasionally fails and passes on a re-run. Worth finding
-      rather than tolerating — a flaky auth test is the one you least want to
-      learn to ignore
+- [ ] The e2e sign-in occasionally fails and passes on a re-run. Investigated
+      once: the login action itself looks right, since a successful sign-in
+      resets the rate limit and the suite never approaches the limit of ten.
+      Four consecutive clean runs on an idle machine failed to reproduce it, and
+      both observed failures happened while the machine was busy with builds and
+      trace parsing — so the next thing to suspect is the 5s `toHaveURL` timeout
+      under CPU contention rather than anything in the app
 - [ ] `npm run lint` currently reports formatting in `README.md` and
       `migrations.spec.ts`
 
