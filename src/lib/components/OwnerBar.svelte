@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	/**
 	 * The artist's controls on their own page.
 	 *
@@ -23,6 +25,9 @@
 </script>
 
 <div class="owner-bar">
+	<!-- A link rather than a button: the trash is a place you go to, and it
+	     should open in a new tab, be bookmarked and be shared like one. -->
+	<a class="link" href={resolve('/trash')}>Trash</a>
 	<button type="button" onclick={onEditProfile}>Edit profile</button>
 	<button type="button" class="primary" onclick={onCreate}>New collection</button>
 </div>
@@ -48,9 +53,20 @@
 		cursor: pointer;
 	}
 
-	button:hover {
+	button:hover,
+	.link:hover {
 		background: var(--color-surface-sunken);
 		color: var(--color-ink);
+	}
+
+	/* Matched to the buttons beside it, so the row reads as one control group. */
+	.link {
+		font-size: 0.82rem;
+		padding: 0.4rem 0.8rem;
+		border: 1px solid var(--color-hairline);
+		color: var(--color-ink-muted);
+		text-decoration: none;
+		line-height: normal;
 	}
 
 	.primary {

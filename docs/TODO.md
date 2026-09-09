@@ -23,8 +23,8 @@ measured, not guessed.
       create and rename, the context menu, reorder, photo selection.
 
       Not deployed to the live instance yet, deliberately: trashing works and
-          restoring works, but with no interface for the trash a discarded
-          collection can only be brought back from the database by hand.
+                  restoring works, but with no interface for the trash a discarded
+                  collection can only be brought back from the database by hand.
 
 - [ ] **Uploading needs failure handling** before anyone else can be told to run
       this. It is the weakest part of the app and the one most likely to lose
