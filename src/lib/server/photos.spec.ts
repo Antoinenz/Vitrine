@@ -28,6 +28,7 @@ const COLLECTION: Collection = {
 	metadataFields: [],
 	datedAt: null,
 	publishedAt: null,
+	deletedAt: null,
 	createdAt: new Date(),
 	updatedAt: new Date()
 } as Collection;

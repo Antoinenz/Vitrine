@@ -166,6 +166,17 @@ export const collections = sqliteTable(
 		datedAt: integer('dated_at', { mode: 'timestamp_ms' }),
 
 		publishedAt: integer('published_at', { mode: 'timestamp_ms' }),
+
+		/**
+		 * Set when the collection is moved to the trash; null means it is live.
+		 *
+		 * Nothing outside `lib/server/collections.ts` may query this table, so that
+		 * every read carries the `is null` check. A read path that forgets it does
+		 * not merely show a stale row — it serves a collection the artist believes
+		 * they have deleted, at a URL they may already have given to a client.
+		 */
+		deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+
 		createdAt: createdAt(),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
 			.notNull()
@@ -177,7 +188,9 @@ export const collections = sqliteTable(
 		uniqueIndex('collections_owner_slug_idx').on(t.ownerId, t.slug),
 		index('collections_visibility_idx').on(t.visibility),
 		index('collections_sort_idx').on(t.ownerId, t.sortKey),
-		index('collections_dated_idx').on(t.ownerId, t.datedAt)
+		index('collections_dated_idx').on(t.ownerId, t.datedAt),
+		// Every read filters on this, and the trash view sorts by it.
+		index('collections_deleted_idx').on(t.ownerId, t.deletedAt)
 	]
 );
 
