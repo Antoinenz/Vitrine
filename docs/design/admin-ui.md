@@ -45,9 +45,21 @@ separate click on the name of an already-selected item. Following Explorer
 properly removes the conflict instead of working around it.
 
 **Right-click.** Ours replaces the browser's, which is where "open in new tab"
-and "copy link address" live. Accepted, owner-only: a signed-in photographer
-managing their own gallery wants the manager's menu, and the keyboard menu key
-still reaches the native one.
+and "copy link address" live. Owner-only, and the menu carries **Open** and
+**Open in new tab** itself, which covers most of what was lost.
+
+Getting the rest back needs care, because **the browser's own context menu
+cannot be opened from JavaScript.** There is no API for it; the only control a
+page has is whether to call `preventDefault` on the `contextmenu` event. So a
+"show the browser menu" item is not implementable as an item. Two conventions
+do work, and both are worth having:
+
+- **Shift + right-click** skips the custom menu. Firefox does this natively for
+  pages that override the menu, so some people already expect it.
+- **Right-click again** while our menu is open lets the second event through.
+  This is what Google Docs does, and it is the one people find without being
+  told, because the instinct when a menu is not the one you wanted is to try
+  again.
 
 ## Behaviour
 
@@ -81,6 +93,11 @@ and says so, with an undo. Dragging must do what it appears to do.
 **Properties** reuses the existing dialog for now. Revisiting what belongs in it
 is a separate job, once there is something to react to.
 
+**Motion in management.** Cursor-driven motion is damped while signed in — the
+tilt and the magnet are presentation, and they are in the way when the job is
+managing rather than looking. In reorder mode every cursor-driven animation is
+off and the jiggle is the only motion on the page.
+
 **Selection** is built for photographs inside a collection first, not for
 collections. That is where bulk actions earn their keep — delete, reorder, set
 cover, download several — and where a photographer actually spends time. A
@@ -113,6 +130,35 @@ if not.
 period rather than immediately. Files stay on disk until then, which is the
 point.
 
+## The motion customiser
+
+A panel docked along the bottom of the screen, like devtools, for tuning how the
+cursor, the animations and the clicks feel. Owner-only, and its values are the
+gallery's — a visitor sees the result, because this is the operator's design
+decision rather than a personal preference.
+
+Two audiences, and they justify it twice over. A self-hoster gets to make the
+gallery feel like theirs, which is the "a great deal of control if you want it"
+half of the roadmap. And it is how the defaults get found: at the moment tuning
+the feel means describing a feeling, waiting for a change, and judging the
+result — a slow loop with a person in the middle of it who cannot feel what the
+other one feels. A panel with live sliders closes that loop in seconds. An
+export that emits the tuned values as the shipped defaults is therefore part of
+it, not an extra.
+
+**What it needs from the code.** The values are currently constants captured at
+module load: `MOTION` in `gsap.ts`, `MAX_TILT_X/Y`, `MAGNET_STRENGTH` and
+`LAYER_DEPTH` in `stack-hover.ts`, `DURATION` and `ARRIVE_EASE` in
+`stack-transition.ts`, drift timings derived from CSS custom properties. Live
+tuning means reading them at call time instead — and `gsap.quickTo` captures
+duration when it is created, so the hover handles have to be rebuilt when
+timings change rather than merely re-read. That is the real work in this;
+the panel itself is sliders.
+
+Values persist per install alongside the other settings, and ship with the
+current constants as their defaults, so an untouched install looks exactly as it
+does today.
+
 ## Staging
 
 Each stage ships on its own.
@@ -125,3 +171,10 @@ Each stage ships on its own.
 4. **Reorder** — jiggle on `rotate`, drag and drop, the automatic switch to
    custom order.
 5. **Photo selection** — checkboxes and the action ribbon, inside a collection.
+
+The **motion customiser** is deliberately unnumbered, because where it belongs
+is a real question. It is not part of the manager, but it is the tool for
+settling how the manager feels — and its refactor of the motion constants is a
+prerequisite for damping motion in management mode at all. Building it before
+stage 4 would mean the reorder jiggle is tunable the day it exists rather than
+guessed at.
