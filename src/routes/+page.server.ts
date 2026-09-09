@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { collections, photos, profiles, users } from '$lib/server/db/schema';
+import { photos, profiles, users } from '$lib/server/db/schema';
 import { toPhotoViews } from '$lib/server/photos';
 import { isListed } from '$lib/server/access';
 import { requireOwner } from '$lib/server/guards';
@@ -14,6 +14,7 @@ import {
 	saveProfile,
 	ProfileInputError
 } from '$lib/server/actions/profile';
+import { listForOwner } from '$lib/server/collections';
 
 /** How many photos make up the visual stack for each collection. */
 const STACK_DEPTH = 4;
@@ -29,12 +30,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	// Newest work first, by when it was photographed rather than uploaded.
 	// `collectionDate()` explains the fallback chain.
-	const all = db
-		.select()
-		.from(collections)
-		.where(eq(collections.ownerId, owner.id))
-		.orderBy(collectionOrder(profile?.collectionOrder))
-		.all();
+	const all = listForOwner(owner.id, collectionOrder(profile?.collectionOrder));
 
 	/**
 	 * Only public collections are listed. Unlisted ones stay reachable by URL but

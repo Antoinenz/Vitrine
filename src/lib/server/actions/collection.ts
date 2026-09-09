@@ -1,9 +1,9 @@
-import { and, asc, eq } from 'drizzle-orm';
 import { db } from '../db';
-import { collections } from '../db/schema';
 import type { User } from '../db/schema';
 import { uniqueSlug } from '../slug';
 import { keyBetween } from '../sort-key';
+import { slugTaken, firstSortKey } from '../collections';
+import { insertCollection } from '../collections';
 
 /**
  * Collection operations, independent of any route.
@@ -33,31 +33,19 @@ export function createCollection(user: User, title: string): string {
 	db.transaction((tx) => {
 		// Uniqueness is checked inside the transaction that inserts, so two
 		// simultaneous creates can't settle on the same slug.
-		slug = uniqueSlug(trimmed, (candidate) => {
-			return !!tx
-				.select({ id: collections.id })
-				.from(collections)
-				.where(and(eq(collections.ownerId, user.id), eq(collections.slug, candidate)))
-				.get();
-		});
+		slug = uniqueSlug(trimmed, (candidate) => slugTaken(user.id, candidate, { runner: tx }));
 
 		// New collections go to the top: it's the one you just made and want to
 		// start filling.
-		const first = tx
-			.select({ sortKey: collections.sortKey })
-			.from(collections)
-			.where(eq(collections.ownerId, user.id))
-			.orderBy(asc(collections.sortKey))
-			.limit(1)
-			.get();
+		const first = { sortKey: firstSortKey(user.id, tx) };
 
-		tx.insert(collections)
-			.values({
+		insertCollection(
+			{
 				id: crypto.randomUUID(),
 				ownerId: user.id,
 				slug,
 				title: trimmed,
-				sortKey: keyBetween(null, first?.sortKey ?? null),
+				sortKey: keyBetween(null, first.sortKey),
 				/**
 				 * `datedAt` is deliberately left null.
 				 *
@@ -69,8 +57,9 @@ export function createCollection(user: User, title: string): string {
 				// Private until the artist decides otherwise — publishing should be a
 				// deliberate act, not the default for an empty collection.
 				visibility: 'private'
-			})
-			.run();
+			},
+			tx
+		);
 	});
 
 	return slug;

@@ -1,21 +1,18 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { collections, users } from '$lib/server/db/schema';
+import { users } from '$lib/server/db/schema';
 import { verifyPassword, isSecureRequest } from '$lib/server/auth';
 import { collectionAccess, grantUnlock } from '$lib/server/access';
 import { rateLimit, resetRateLimit, LIMITS } from '$lib/server/rate-limit';
+import { findBySlug } from '$lib/server/collections';
 
 function findCollection(slug: string) {
 	const owner = db.select().from(users).orderBy(asc(users.createdAt)).limit(1).get();
 	if (!owner) error(404);
 
-	const collection = db
-		.select()
-		.from(collections)
-		.where(and(eq(collections.ownerId, owner.id), eq(collections.slug, slug)))
-		.get();
+	const collection = findBySlug(owner.id, slug);
 
 	if (!collection) error(404);
 	return collection;
