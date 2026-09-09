@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { isPageActive, onPageActive } from './visibility';
 
 /**
@@ -22,12 +22,35 @@ const AFTER_SETTLE_MS = 700;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-afterEach(async () => {
-	// Hand `hidden` back to the browser and let the module return to rest, so a
-	// pending settle timer from one test cannot resolve inside the next.
+/**
+ * Waits for the module to actually reach its resting state.
+ *
+ * Originally a fixed sleep, which passed alone and failed in the full suite:
+ * the settle is two animation frames plus a timer, and under a machine running
+ * both test projects at once that took longer than the sleep allowed. The next
+ * test then either subscribed while still inactive or had the late timer fire
+ * underneath it. Polling the condition removes the guess.
+ */
+async function settle() {
+	for (let i = 0; i < 100; i++) {
+		if (isPageActive()) return;
+		await wait(20);
+	}
+	throw new Error('page never settled back to active');
+}
+
+beforeEach(async () => {
 	Reflect.deleteProperty(document, 'hidden');
 	document.dispatchEvent(new Event('visibilitychange'));
-	await wait(AFTER_SETTLE_MS);
+	await settle();
+});
+
+afterEach(async () => {
+	// Hand `hidden` back to the browser, so a pending settle timer from one test
+	// cannot resolve inside the next.
+	Reflect.deleteProperty(document, 'hidden');
+	document.dispatchEvent(new Event('visibilitychange'));
+	await settle();
 });
 
 describe('page visibility', () => {
