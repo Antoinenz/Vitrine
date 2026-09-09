@@ -17,6 +17,9 @@ measured, not guessed.
 
 ## Next
 
+- [ ] **Admin UI overhaul** — planned in
+      [design/admin-ui.md](design/admin-ui.md). Trash first, then inline create
+      and rename, then the context menu, then reorder, then photo selection.
 - [ ] **Uploading needs failure handling** before anyone else can be told to run
       this. It is the weakest part of the app and the one most likely to lose
       someone's work.
@@ -75,10 +78,11 @@ were wrong.
 - [ ] Failure handling on upload: what happens on a dropped connection, a file
       `sharp` cannot decode, a full disk
 - [ ] Progress and recovery that survive a page reload mid-upload
-- [ ] Collection and photo management is thin and awkward in places
+- [ ] Collection and photo management is thin and awkward in places — being
+      replaced wholesale, see [design/admin-ui.md](design/admin-ui.md)
 - [ ] No interface for reordering collections. `collections.sort_key` exists and
       is written once at creation and never again, so "Custom order" currently
-      orders by creation
+      orders by creation. Stage 4 of the admin overhaul
 
 ## Storage and installation
 
