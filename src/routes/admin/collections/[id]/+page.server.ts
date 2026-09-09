@@ -16,7 +16,7 @@ import { keyBetween } from '$lib/server/sort-key';
 import { deleteDerivatives, deleteOriginal } from '$lib/server/storage';
 import { slugTaken } from '$lib/server/collections';
 import { updateCollection } from '$lib/server/collections';
-import { trash } from '$lib/server/actions/trash';
+import { trash, TRASH_RETENTION_DAYS } from '$lib/server/actions/trash';
 
 const VISIBILITIES = new Set<Visibility>(['public', 'unlisted', 'private']);
 
@@ -52,7 +52,9 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 			hasPassword: !!collection.passwordHash
 		},
 		photos: rows,
-		metadataFields: METADATA_FIELDS
+		metadataFields: METADATA_FIELDS,
+		// Policy lives on the server; the page only needs to be able to say it.
+		trashRetentionDays: TRASH_RETENTION_DAYS
 	};
 };
 

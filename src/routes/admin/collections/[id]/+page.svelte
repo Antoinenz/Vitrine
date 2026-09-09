@@ -369,22 +369,29 @@
 	</form>
 </section>
 
+<!--
+	Wording follows the action, which no longer destroys anything. Saying "this
+	can't be undone" over something that can is the kind of small dishonesty that
+	teaches people to distrust every other warning in the interface.
+-->
 <section class="danger-zone">
-	<h2>Delete collection</h2>
+	<h2>Move to trash</h2>
 	{#if confirmingDelete}
 		<p class="hint">
-			This permanently removes <strong>{c.title}</strong> and its
-			{data.photos.length} photo{data.photos.length === 1 ? '' : 's'}. It can't be undone.
+			<strong>{c.title}</strong> and its
+			{data.photos.length} photo{data.photos.length === 1 ? '' : 's'} will move to the trash, and the
+			address <code>/c/{c.slug}</code> will be free to use again. Nothing is deleted until you empty
+			the trash, or {data.trashRetentionDays} days pass.
 		</p>
 		<div class="confirm-actions">
 			<form method="POST" action="?/delete" use:enhance>
-				<button type="submit" class="danger-solid">Delete permanently</button>
+				<button type="submit" class="danger-solid">Move to trash</button>
 			</form>
 			<button type="button" onclick={() => (confirmingDelete = false)}>Cancel</button>
 		</div>
 	{:else}
 		<button type="button" class="danger-outline" onclick={() => (confirmingDelete = true)}>
-			Delete this collection
+			Move this collection to the trash
 		</button>
 	{/if}
 </section>
