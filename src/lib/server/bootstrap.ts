@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { db } from './db';
 import { users, profiles } from './db/schema';
 import { hashPassword } from './auth';
+import { purgeExpired, TRASH_RETENTION_DAYS } from './actions/trash';
 import {
 	ADMIN_EMAIL,
 	ADMIN_PASSWORD,
@@ -26,6 +27,32 @@ export async function bootstrap(): Promise<void> {
 	mkdirSync(DERIVATIVES_DIR, { recursive: true });
 
 	await seedOwner();
+	await sweepTrash();
+}
+
+/**
+ * Clears out anything discarded longer ago than the retention period.
+ *
+ * At startup rather than on a timer, for the same reason interrupted image
+ * processing resumes at boot: a gallery nobody visits does not need to reclaim
+ * the space, and a restart for an upgrade brings the sweep along for free.
+ *
+ * A failure here must not stop the server. Reclaiming disk is housekeeping; not
+ * serving the gallery because a file could not be unlinked would be the more
+ * expensive outcome by a distance.
+ */
+async function sweepTrash(): Promise<void> {
+	try {
+		const purged = await purgeExpired();
+		if (purged > 0) {
+			console.log(
+				`Purged ${purged} collection${purged === 1 ? '' : 's'} ` +
+					`discarded more than ${TRASH_RETENTION_DAYS} days ago.`
+			);
+		}
+	} catch (err) {
+		console.error('Could not purge expired collections:', err);
+	}
 }
 
 /**
