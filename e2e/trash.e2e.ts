@@ -5,8 +5,30 @@ const PASSWORD = 'rotatedpassword123';
 
 async function signIn(page: import('@playwright/test').Page) {
 	await page.goto('/login');
-	await page.getByLabel('Email').fill(EMAIL);
-	await page.getByLabel('Password').fill(PASSWORD);
+	/**
+	 * Filled only once the page is settled, and checked before submitting.
+	 *
+	 * This suite failed here perhaps one run in three, always at sign-in and
+	 * never on a re-run, and it survived two wrong diagnoses — a rate limit, and
+	 * a machine too busy to answer in five seconds. The page state at the moment
+	 * of failure gave it away: the **email box was empty**, the password box was
+	 * full, and there was no error message anywhere. Nothing had been rejected;
+	 * nothing had been submitted.
+	 *
+	 * Filling begins before hydration finishes, and hydration replaces the input
+	 * — so the first value typed is discarded and the second survives. Waiting
+	 * for the page to settle and then confirming both boxes still hold what was
+	 * typed removes the race rather than widening the window it hides in.
+	 */
+	await page.waitForLoadState('networkidle');
+
+	const email = page.getByLabel('Email');
+	const password = page.getByLabel('Password');
+	await email.fill(EMAIL);
+	await password.fill(PASSWORD);
+	await expect(email).toHaveValue(EMAIL);
+	await expect(password).toHaveValue(PASSWORD);
+
 	await page.getByRole('button', { name: /sign in/i }).click();
 	await expect(page).toHaveURL('/');
 }
@@ -43,8 +65,12 @@ test('a discarded collection leaves the gallery and comes back intact', async ({
 
 	// Still recoverable.
 	await page.goto('/trash');
-	await expect(page.getByRole('heading', { name: 'Bin Test' })).toBeVisible();
-	await page.getByRole('button', { name: /^restore$/i }).click();
+
+	// Scoped to its own row: other tests discard things too, and a test that
+	// assumes it is the only thing in the bin breaks the moment one more is.
+	const row = page.locator('.items li').filter({ hasText: 'Bin Test' });
+	await expect(row.getByRole('heading', { name: 'Bin Test' })).toBeVisible();
+	await row.getByRole('button', { name: /^restore$/i }).click();
 
 	await expect(page.getByText(/restored/i)).toBeVisible();
 

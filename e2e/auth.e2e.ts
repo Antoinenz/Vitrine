@@ -25,9 +25,30 @@ import { test, expect } from '@playwright/test';
 const EMAIL = 'e2e@test.com';
 const PASSWORD = 'rotatedpassword123';
 
+/**
+ * Fills only once the page is settled, and checks before submitting.
+ *
+ * The suite failed here perhaps one run in three, always at sign-in and never
+ * on a re-run, and it survived two wrong diagnoses — a rate limit, and a
+ * machine too busy to answer in five seconds. The page state at the moment of
+ * failure gave it away: the **email box was empty**, the password box was full,
+ * and there was no error message anywhere. Nothing had been rejected; nothing
+ * had been submitted.
+ *
+ * Filling begins before hydration finishes, and hydration replaces the input —
+ * so the first value typed is discarded and the second survives. Waiting for
+ * the page to settle and then confirming both boxes still hold what was typed
+ * removes the race rather than widening the window it hides in.
+ */
 async function signIn(page: import('@playwright/test').Page) {
-	await page.getByLabel('Email').fill(EMAIL);
-	await page.getByLabel('Password').fill(PASSWORD);
+	await page.waitForLoadState('networkidle');
+
+	const email = page.getByLabel('Email');
+	const password = page.getByLabel('Password');
+	await email.fill(EMAIL);
+	await password.fill(PASSWORD);
+	await expect(email).toHaveValue(EMAIL);
+	await expect(password).toHaveValue(PASSWORD);
 	await page.getByRole('button', { name: /sign in/i }).click();
 }
 
@@ -80,8 +101,16 @@ test('the session survives a reload', async ({ page }) => {
 
 test('a wrong password is rejected with a message, not a silent loop', async ({ page }) => {
 	await page.goto('/login');
-	await page.getByLabel('Email').fill(EMAIL);
+	await page.waitForLoadState('networkidle');
+
+	const email = page.getByLabel('Email');
+	await email.fill(EMAIL);
 	await page.getByLabel('Password').fill('not-the-password');
+	// The same hydration race as `signIn`: without this the email is sometimes
+	// discarded, and the server answers "enter your email and password" — which
+	// would make this test pass or fail for the wrong reason either way.
+	await expect(email).toHaveValue(EMAIL);
+
 	await page.getByRole('button', { name: /sign in/i }).click();
 
 	await expect(page.getByRole('alert')).toContainText(/incorrect/i);
