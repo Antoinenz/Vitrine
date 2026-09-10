@@ -199,3 +199,44 @@ test('a visitor gets no upload handlers at all', async ({ page }) => {
 	await expect(page.getByText('Drop to upload')).toHaveCount(0);
 	await expect(page.getByText('not-mine.jpg')).toHaveCount(0);
 });
+
+/**
+ * The drop target follows the page, not the app.
+ *
+ * The gallery has no collection to put files in, so a drop there makes one; a
+ * collection page does, so files land straight in it. Both were reachable only
+ * from the workbench before, which is the page this overhaul is removing — so
+ * these pin the behaviour to where it is going rather than where it was.
+ */
+test('a photograph dropped on a collection page lands in that collection', async ({ page }) => {
+	await signIn(page);
+
+	await page.goto('/');
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
+	const field = page.getByRole('textbox', { name: 'Collection name' });
+	await field.fill('Dropped Here');
+	await field.press('Enter');
+
+	// The collection's own page, not the workbench.
+	await page.goto('/c/dropped-here');
+	await expect(page.getByText('This collection is empty')).toBeVisible();
+
+	const base64 = (await jpeg()).toString('base64');
+	await dropFile(page, 'onto-collection.jpg', base64);
+
+	await expect(page.getByText('onto-collection.jpg')).toBeVisible();
+	await expect(page.getByText('Uploaded')).toBeVisible({ timeout: 15_000 });
+});
+
+test('a photograph dropped on the gallery is held for a new collection', async ({ page }) => {
+	await signIn(page);
+	await page.goto('/');
+
+	const base64 = (await jpeg()).toString('base64');
+	await dropFile(page, 'onto-gallery.jpg', base64);
+
+	// The gallery has nowhere to put it, so it makes somewhere — and goes there,
+	// because a dropped folder is a finished instruction with nothing left to name.
+	await expect(page).toHaveURL(/\/c\//, { timeout: 15_000 });
+	await expect(page.getByText('onto-gallery.jpg')).toBeVisible();
+});
