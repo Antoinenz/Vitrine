@@ -204,7 +204,7 @@ test('zooming keeps the photograph on screen while the sharper file loads', asyn
 	expect(await img.getAttribute('src')).toBe(before);
 
 	// And it does eventually sharpen, rather than being stuck on the preview.
-	await expect(img).not.toHaveAttribute('src', before ?? '', { timeout: 15_000 });
+	await expect(img).not.toHaveAttribute('src', before ?? '');
 	await expect(img).toBeVisible();
 });
 

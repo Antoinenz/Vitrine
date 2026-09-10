@@ -85,9 +85,9 @@ were wrong.
 - [ ] Progress and recovery that survive a page reload mid-upload
 - [ ] Collection and photo management is thin and awkward in places — being
       replaced wholesale, see [design/admin-ui.md](design/admin-ui.md)
-- [ ] No interface for reordering collections. `collections.sort_key` exists and
-      is written once at creation and never again, so "Custom order" currently
-      orders by creation. Stage 4 of the admin overhaul
+- [x] ~~No interface for reordering collections.~~ Drag to reorder, from the
+      context menu. The first drag seeds every sort key from the order on screen
+      before switching the gallery to custom order
 
 ## Storage and installation
 
@@ -110,13 +110,13 @@ were wrong.
 - [ ] `docs/screenshots` is about 13 MB of full-resolution PNGs displayed at
       380px. Downscaling to ~1200px would make cloning the repository markedly
       cheaper
-- [ ] The e2e sign-in occasionally fails and passes on a re-run. Investigated
-      once: the login action itself looks right, since a successful sign-in
-      resets the rate limit and the suite never approaches the limit of ten.
-      Four consecutive clean runs on an idle machine failed to reproduce it, and
-      both observed failures happened while the machine was busy with builds and
-      trace parsing — so the next thing to suspect is the 5s `toHaveURL` timeout
-      under CPU contention rather than anything in the app
+- [x] ~~The e2e sign-in occasionally fails and passes on a re-run.~~ Found: the
+      login form bound the email with `value`, which Svelte re-applies during
+      hydration, discarding anything typed or autofilled before the JavaScript
+      arrived. Not a test problem — a password manager would hit it too. Fixed
+      with `defaultValue`. Both earlier theories (rate limiting, a slow machine)
+      were wrong, and the thing that settled it was the page state captured at
+      the moment of failure: email empty, password full, no error shown
 - [ ] `npm run lint` currently reports formatting in `README.md` and
       `migrations.spec.ts`
 

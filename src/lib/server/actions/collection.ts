@@ -1,12 +1,15 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { photos, type User } from '../db/schema';
+import { photos, profiles, type User, type Visibility } from '../db/schema';
+import { VISIBILITIES } from '$lib/visibility';
 import { slugify, uniqueSlug, isReservedSlug } from '../slug';
-import { keyBetween } from '../sort-key';
+import { keyBetween, keysAfter } from '../sort-key';
+import { collectionOrder } from '../collection-order';
 import {
 	slugTaken,
 	firstSortKey,
 	findOwnedById,
+	listForOwner,
 	updateCollection,
 	type Runner
 } from '../collections';
@@ -154,4 +157,111 @@ export function renameCollection(
 
 	updateCollection(id, { title: trimmed, slug }, runner);
 	return { slug, renamed: slug !== collection.slug };
+}
+
+/**
+ * Changes a collection's visibility, keeping `publishedAt` honest.
+ *
+ * The stamp records when the work was first shared, so it is set on the way out
+ * of private and left alone afterwards — going public, then unlisted, then
+ * public again should not rewrite the date the work was published. Returning to
+ * private clears it, because at that point nothing has been published.
+ */
+export function setVisibility(user: User, id: string, visibility: Visibility, runner: Runner = db) {
+	if (!VISIBILITIES.has(visibility)) throw new CollectionInputError('Unknown visibility.');
+
+	const collection = findOwnedById(user.id, id, runner);
+	if (!collection) throw new CollectionInputError('That collection no longer exists.');
+
+	updateCollection(
+		id,
+		{
+			visibility,
+			publishedAt: visibility === 'private' ? null : (collection.publishedAt ?? new Date())
+		},
+		runner
+	);
+
+	return { visibility };
+}
+
+/**
+ * Moves a collection between two others.
+ *
+ * `before` and `after` are the neighbours it should end up between, either of
+ * which may be null at the ends of the list. A fractional key means one row is
+ * rewritten rather than the whole gallery renumbered.
+ *
+ * ## Why this also changes a setting
+ *
+ * The gallery sorts by capture date unless the artist has chosen custom order,
+ * and `sortKey` was written once at creation and never read. So dragging while
+ * in date order would rewrite a key nothing consults: the tile would snap back
+ * and the page would look broken, with nothing to see in any log.
+ *
+ * Rather than refuse the drag, or leave it silently ineffective, the first one
+ * switches the gallery to custom order and says so. Dragging should do what it
+ * appears to do; being told why the whole gallery just changed is the price,
+ * and it is a fair one.
+ */
+export function reorderCollection(
+	user: User,
+	id: string,
+	beforeId: string | null,
+	afterId: string | null,
+	runner: Runner = db
+): { switchedToCustom: boolean } {
+	if (!findOwnedById(user.id, id, runner)) {
+		throw new CollectionInputError('That collection no longer exists.');
+	}
+
+	const profile = runner
+		.select({ order: profiles.collectionOrder })
+		.from(profiles)
+		.where(eq(profiles.userId, user.id))
+		.get();
+
+	const switchedToCustom = profile?.order !== 'custom';
+
+	if (switchedToCustom) {
+		/**
+		 * Freeze the order that is on screen before honouring `sortKey`.
+		 *
+		 * `sortKey` was written once at creation and never read, because the
+		 * gallery sorted by date — so the keys describe the order the collections
+		 * were *made* in, which is usually nothing like the order being looked at.
+		 * Switching to custom order without this makes the first drag reshuffle
+		 * the whole gallery into an arrangement the artist never chose, with one
+		 * tile moved somewhere inside it.
+		 *
+		 * It was visible immediately when tried: dragging one collection sent an
+		 * unrelated one from fifth place to first.
+		 *
+		 * So the keys are seeded from what is currently displayed. The switch then
+		 * changes nothing except the tile that was actually dragged.
+		 */
+		// `collectionOrder('date')` rather than a copy of it: one definition of
+		// what the default order is.
+		const displayed = listForOwner(user.id, collectionOrder('date'), runner);
+		const seeded = keysAfter(null, displayed.length);
+		displayed.forEach((c, i) => updateCollection(c.id, { sortKey: seeded[i] }, runner));
+
+		runner
+			.update(profiles)
+			.set({ collectionOrder: 'custom' })
+			.where(eq(profiles.userId, user.id))
+			.run();
+	}
+
+	// Read after any seeding, since that rewrote every key.
+	const before = beforeId ? findOwnedById(user.id, beforeId, runner) : null;
+	const after = afterId ? findOwnedById(user.id, afterId, runner) : null;
+
+	updateCollection(
+		id,
+		{ sortKey: keyBetween(before?.sortKey ?? null, after?.sortKey ?? null) },
+		runner
+	);
+
+	return { switchedToCustom };
 }

@@ -10,8 +10,12 @@ import { collectionOrder } from '$lib/server/collection-order';
 import {
 	createCollection,
 	renameCollection,
+	setVisibility,
+	reorderCollection,
 	CollectionInputError
 } from '$lib/server/actions/collection';
+import type { Visibility } from '$lib/server/db/schema';
+import { trash } from '$lib/server/actions/trash';
 import {
 	avatarCandidates,
 	loadProfile,
@@ -170,6 +174,60 @@ export const actions: Actions = {
 		} catch (err) {
 			if (err instanceof CollectionInputError) {
 				return fail(400, { scope: 'create', message: err.message });
+			}
+			throw err;
+		}
+	},
+
+	trashCollection: async ({ locals, request, url }) => {
+		const user = requireOwner(locals, url.pathname);
+		const id = String((await request.formData()).get('id') ?? '');
+
+		const trashed = trash(user.id, id);
+		if (!trashed)
+			return fail(404, { scope: 'trash', message: 'That collection no longer exists.' });
+
+		return { scope: 'trash', trashed: trashed.title };
+	},
+
+	setVisibility: async ({ locals, request, url }) => {
+		const user = requireOwner(locals, url.pathname);
+		const data = await request.formData();
+
+		try {
+			const result = setVisibility(
+				user,
+				String(data.get('id') ?? ''),
+				String(data.get('visibility') ?? '') as Visibility
+			);
+			return { scope: 'visibility', ...result };
+		} catch (err) {
+			if (err instanceof CollectionInputError) {
+				return fail(400, { scope: 'visibility', message: err.message });
+			}
+			throw err;
+		}
+	},
+
+	reorderCollection: async ({ locals, request, url }) => {
+		const user = requireOwner(locals, url.pathname);
+		const data = await request.formData();
+		const orNull = (v: FormDataEntryValue | null) => {
+			const s = String(v ?? '');
+			return s === '' ? null : s;
+		};
+
+		try {
+			const result = reorderCollection(
+				user,
+				String(data.get('id') ?? ''),
+				orNull(data.get('before')),
+				orNull(data.get('after'))
+			);
+			return { scope: 'reorder', ...result };
+		} catch (err) {
+			if (err instanceof CollectionInputError) {
+				return fail(400, { scope: 'reorder', message: err.message });
 			}
 			throw err;
 		}

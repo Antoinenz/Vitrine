@@ -15,8 +15,30 @@ const PASSWORD = 'rotatedpassword123';
 
 async function signIn(page: Page) {
 	await page.goto('/login');
-	await page.getByLabel('Email').fill(EMAIL);
-	await page.getByLabel('Password').fill(PASSWORD);
+	/**
+	 * Filled only once the page is settled, and checked before submitting.
+	 *
+	 * This suite failed here perhaps one run in three, always at sign-in and
+	 * never on a re-run, and it survived two wrong diagnoses — a rate limit, and
+	 * a machine too busy to answer in five seconds. The page state at the moment
+	 * of failure gave it away: the **email box was empty**, the password box was
+	 * full, and there was no error message anywhere. Nothing had been rejected;
+	 * nothing had been submitted.
+	 *
+	 * Filling begins before hydration finishes, and hydration replaces the input
+	 * — so the first value typed is discarded and the second survives. Waiting
+	 * for the page to settle and then confirming both boxes still hold what was
+	 * typed removes the race rather than widening the window it hides in.
+	 */
+	await page.waitForLoadState('networkidle');
+
+	const email = page.getByLabel('Email');
+	const password = page.getByLabel('Password');
+	await email.fill(EMAIL);
+	await password.fill(PASSWORD);
+	await expect(email).toHaveValue(EMAIL);
+	await expect(password).toHaveValue(PASSWORD);
+
 	await page.getByRole('button', { name: /sign in/i }).click();
 	await expect(page).toHaveURL('/');
 }
