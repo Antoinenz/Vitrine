@@ -3,6 +3,15 @@ import { db } from '../db';
 import { photos } from '../db/schema';
 import { deleteDerivatives, deleteOriginal } from '../storage';
 import {
+	listTrashedForOwner as listTrashedPhotos,
+	findTrashedForOwner as findTrashedPhoto,
+	listTrashedBefore as listTrashedPhotosBefore,
+	restoreFromTrash as restorePhotoRow,
+	deletePhotoRow,
+	storageKeyStillUsed,
+	moveToTrash as movePhotosToTrash
+} from '../photo-store';
+import {
 	deleteCollectionRow,
 	findTrashedById,
 	listTrashedBefore,
@@ -32,6 +41,7 @@ import type { Collection } from '../db/schema';
  */
 
 export { TRASH_RETENTION_DAYS };
+export { listTrashedPhotos, movePhotosToTrash };
 
 /** Moves a collection to the trash. Returns undefined if it was not found. */
 export function trash(ownerId: string, id: string): Collection | undefined {
@@ -102,6 +112,44 @@ async function purgeRow(collection: Collection): Promise<void> {
 	}
 }
 
+/** Restores a trashed photograph to the collection it came from. */
+export function restorePhoto(ownerId: string, photoId: string): boolean {
+	return restorePhotoRow(ownerId, photoId);
+}
+
+/**
+ * Deletes a trashed photograph and its files for good.
+ *
+ * Refuses anything not already in the trash, exactly as `purge` does for a
+ * collection: permanent deletion is reachable only from the trash, and only as
+ * a second decision.
+ */
+export async function purgePhoto(ownerId: string, photoId: string): Promise<boolean> {
+	const photo = findTrashedPhoto(ownerId, photoId);
+	if (!photo) return false;
+
+	await purgePhotoRow(photo);
+	return true;
+}
+
+/**
+ * Removes one photograph: row first, then files.
+ *
+ * Same ordering as a collection, for the same reason — a crash between the two
+ * leaves bytes nobody references, which costs disk, rather than a row pointing
+ * at a file that is gone, which is a broken picture on a page.
+ */
+async function purgePhotoRow(photo: { id: string; storageKey: string }): Promise<void> {
+	deletePhotoRow(photo.id);
+	await deleteDerivatives(photo.id);
+
+	// Content-addressed originals are shared between collections, and a trashed
+	// row still counts as a reference until it is purged too.
+	if (!storageKeyStillUsed(photo.storageKey, photo.id)) {
+		await deleteOriginal(photo.storageKey);
+	}
+}
+
 /**
  * Purges everything discarded longer ago than the retention period.
  *
@@ -116,7 +164,17 @@ async function purgeRow(collection: Collection): Promise<void> {
 export async function purgeExpired(now: Date = new Date()): Promise<number> {
 	const cutoff = new Date(now.getTime() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 	const expired = listTrashedBefore(cutoff);
-
 	for (const collection of expired) await purgeRow(collection);
-	return expired.length;
+
+	/**
+	 * Photographs too, and after the collections.
+	 *
+	 * A collection purge takes its photographs with it, so doing that first means
+	 * this pass has fewer rows to consider and cannot trip over one that has just
+	 * been removed underneath it.
+	 */
+	const expiredPhotos = listTrashedPhotosBefore(cutoff);
+	for (const photo of expiredPhotos) await purgePhotoRow(photo);
+
+	return expired.length + expiredPhotos.length;
 }

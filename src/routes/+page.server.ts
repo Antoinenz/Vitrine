@@ -1,8 +1,8 @@
 import { fail } from '@sveltejs/kit';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { photos, profiles, users } from '$lib/server/db/schema';
+import { profiles, users } from '$lib/server/db/schema';
 import { toPhotoViews } from '$lib/server/photos';
 import { isListed } from '$lib/server/access';
 import { requireOwner } from '$lib/server/guards';
@@ -23,6 +23,7 @@ import {
 	ProfileInputError
 } from '$lib/server/actions/profile';
 import { listForOwner } from '$lib/server/collections';
+import { listForCollections } from '$lib/server/photo-store';
 
 /** How many photos make up the visual stack for each collection. */
 const STACK_DEPTH = 4;
@@ -66,17 +67,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	// One query for every stack, rather than one per collection.
-	const rows = db
-		.select()
-		.from(photos)
-		.where(
-			inArray(
-				photos.collectionId,
-				visible.map((c) => c.id)
-			)
-		)
-		.orderBy(asc(photos.sortKey))
-		.all();
+	const rows = listForCollections(visible.map((c) => c.id));
 
 	const byCollection = new Map<string, typeof rows>();
 	for (const row of rows) {

@@ -35,7 +35,16 @@ const SRC = join(ROOT, 'src');
  * build and inspect their own fixture databases, and a test that lies about the
  * data is a broken test rather than a leak.
  */
-const ALLOWED = new Set(['lib/server/collections.ts']);
+const ALLOWED = new Set([
+	'lib/server/collections.ts',
+	/**
+	 * The trash listing joins collections on purpose without excluding trashed
+	 * ones — a photograph discarded before its collection was should still be
+	 * listed and restorable. Exempted here rather than satisfied with a
+	 * decorative import, so the exception is visible.
+	 */
+	'lib/server/photo-store.ts'
+]);
 
 const isExempt = (path: string) => ALLOWED.has(path) || path.endsWith('.spec.ts');
 

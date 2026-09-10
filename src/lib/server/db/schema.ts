@@ -247,6 +247,16 @@ export const photos = sqliteTable(
 		altText: text('alt_text').notNull().default(''),
 
 		sortKey: text('sort_key').notNull(),
+
+		/**
+		 * Set when the photograph is moved to the trash; null means it is live.
+		 *
+		 * Same rule as `collections.deleted_at`, for the same reason: nothing in
+		 * this gallery is destroyed by a single click. See `photo-store.ts` for
+		 * how reads are kept honest.
+		 */
+		deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+
 		status: text('status').$type<PhotoStatus>().notNull().default('pending'),
 		/** Populated when `status = 'failed'` so the admin UI can show a reason. */
 		error: text('error'),
@@ -255,6 +265,8 @@ export const photos = sqliteTable(
 	},
 	(t) => [
 		index('photos_collection_sort_idx').on(t.collectionId, t.sortKey),
+		// Every read filters on this, and the trash lists by it.
+		index('photos_deleted_idx').on(t.deletedAt),
 		// Drives the boot-time requeue of work interrupted by a restart.
 		index('photos_status_idx').on(t.status)
 	]

@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
-import { eq, inArray, asc } from 'drizzle-orm';
+import { and, eq, inArray, asc } from 'drizzle-orm';
 import { db } from '../db';
 import { photos, derivatives } from '../db/schema';
 import { WORKER_CONCURRENCY } from '../config';
 import { originalPath, derivativeKey, writeDerivative } from '../storage';
 import { processImage } from './process';
 import { extractExif } from './exif';
+import { photoNotTrashed } from '../photo-store';
 
 /**
  * Background generation of renditions.
@@ -36,7 +37,7 @@ export function requeueInterrupted(): number {
 	const stranded = db
 		.select({ id: photos.id })
 		.from(photos)
-		.where(eq(photos.status, 'processing'))
+		.where(and(eq(photos.status, 'processing'), photoNotTrashed))
 		.all();
 
 	if (stranded.length === 0) return 0;
@@ -66,7 +67,7 @@ function claimNext(): string | null {
 		const next = tx
 			.select({ id: photos.id })
 			.from(photos)
-			.where(eq(photos.status, 'pending'))
+			.where(and(eq(photos.status, 'pending'), photoNotTrashed))
 			.orderBy(asc(photos.createdAt))
 			.limit(1)
 			.get();
@@ -79,7 +80,11 @@ function claimNext(): string | null {
 }
 
 async function processOne(photoId: string): Promise<void> {
-	const photo = db.select().from(photos).where(eq(photos.id, photoId)).get();
+	const photo = db
+		.select()
+		.from(photos)
+		.where(and(eq(photos.id, photoId), photoNotTrashed))
+		.get();
 	if (!photo) return;
 
 	const buffer = await readFile(originalPath(photo.storageKey));

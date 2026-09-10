@@ -1,9 +1,10 @@
-import { inArray, asc, eq } from 'drizzle-orm';
+import { and, inArray, asc, eq } from 'drizzle-orm';
 import { db } from './db';
 import { derivatives, photos, type Photo, type Collection } from './db/schema';
 import { projectExif } from './images/exif';
 import type { PhotoExif } from './db/schema';
 import { SOCIAL_WIDTH } from '../social';
+import { photoNotTrashed } from './photo-store';
 
 /**
  * Turns database rows into the shape the public pages render.
@@ -197,7 +198,7 @@ export function loadCollectionPhotos(collection: Collection): PhotoView[] {
 	const rows = db
 		.select()
 		.from(photos)
-		.where(eq(photos.collectionId, collection.id))
+		.where(and(eq(photos.collectionId, collection.id), photoNotTrashed))
 		.orderBy(asc(photos.sortKey))
 		.all();
 

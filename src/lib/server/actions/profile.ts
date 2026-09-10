@@ -4,6 +4,7 @@ import { profiles, photos, collections, COLLECTION_ORDERS } from '../db/schema';
 import type { CollectionOrder, User } from '../db/schema';
 import { LICENCES, DEFAULT_LICENCE } from '$lib/licences';
 import { notTrashed } from '../collections';
+import { photoNotTrashed } from '../photo-store';
 
 /**
  * Reading and writing the artist's profile, independent of any route.
@@ -88,6 +89,7 @@ export function avatarCandidates(userId: string): AvatarCandidate[] {
 			and(
 				eq(collections.ownerId, userId),
 				eq(photos.status, 'ready'),
+				photoNotTrashed,
 				// `private` is the one that breaks; `unlisted` is reachable by link and
 				// its images are served to anyone who has one.
 				eq(collections.visibility, 'public')
@@ -172,6 +174,7 @@ export function saveProfile(user: User, data: FormData): void {
 				.where(
 					and(
 						eq(photos.id, rawAvatar),
+						photoNotTrashed,
 						eq(collections.ownerId, user.id),
 						eq(collections.visibility, 'public')
 					)
