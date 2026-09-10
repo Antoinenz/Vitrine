@@ -8,6 +8,9 @@
 	import { eagerOnArrival, markArrived } from '$lib/motion/arrival';
 	import { GRID_SIZES } from '$lib/photo-sizes';
 	import { entrance } from '$lib/motion/entrance';
+	import EmptyState from '$lib/components/EmptyState.svelte';
+	import Uploader from '$lib/components/Uploader.svelte';
+	import { setDropTarget } from '$lib/upload/target.svelte';
 	import { prefersReducedMotion } from '$lib/motion/gsap';
 	import { capturePhotoOrigin, cancelPhotoOrigin } from '$lib/motion/photo-open';
 	import type { PageData } from './$types';
@@ -133,6 +136,22 @@
 	});
 
 	let gridEl = $state<HTMLElement>();
+
+	/**
+	 * Photographs dropped anywhere on this page go into this collection.
+	 *
+	 * The artist page takes a dropped *folder* and makes a collection from it;
+	 * here there is already a collection, so files land straight in it. That
+	 * difference is the whole reason the target is set per page rather than once
+	 * globally — the same gesture should mean the obvious thing in each place.
+	 *
+	 * Owner only, so a visitor never has the overlay mounted at all.
+	 */
+	$effect(() => {
+		if (!data.isOwner) return;
+		setDropTarget({ kind: 'collection', slug: c.slug, title: c.title });
+		return () => setDropTarget(null);
+	});
 
 	/**
 	 * Plays the arriving transition, or falls back to a plain reveal.
@@ -321,7 +340,24 @@
 </header>
 
 {#if data.photos.length === 0}
-	<p class="empty">This collection is still being prepared.</p>
+	{#if data.isOwner}
+		<EmptyState
+			title="This collection is empty"
+			message="Drop photographs anywhere on this page, or choose them below."
+		>
+			<Uploader slug={c.slug} />
+		</EmptyState>
+	{:else}
+		<!--
+			A visitor is told what they found, not what the artist has yet to do.
+			"Still being prepared" was a promise the gallery cannot keep on the
+			artist's behalf.
+		-->
+		<EmptyState
+			title="Nothing here yet"
+			message="This collection doesn't have any photographs in it."
+		/>
+	{/if}
 {:else}
 	<!--
 		`data-photo` on each figure marks the elements the stack→grid transition
@@ -544,13 +580,5 @@
 		line-height: 1.5;
 		color: var(--color-ink-subtle);
 		text-wrap: pretty;
-	}
-
-	.empty {
-		max-width: 78rem;
-		margin: 0 auto;
-		padding: 0 1.5rem 8rem;
-		font-size: 0.95rem;
-		color: var(--color-ink-muted);
 	}
 </style>

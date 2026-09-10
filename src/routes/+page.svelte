@@ -30,7 +30,16 @@
 	 */
 	let creatingPlaceholder = $state(false);
 
-	/** Where a dropped folder should send us once its collection exists. */
+	/**
+	 * Whether this create came from a drop, and so must navigate when it lands.
+	 *
+	 * Keyed on the drop itself rather than on whether a folder name was found.
+	 * Files held by the overlay are flushed by *arriving* at a collection, so a
+	 * create that stays put leaves them held and nothing is ever uploaded — which
+	 * is what happened to a loose photograph dropped on the gallery, since only a
+	 * folder carries a name.
+	 */
+	let fromDrop = $state(false);
 	let goAfterCreate = $state(false);
 
 	type Tile = (typeof data.collections)[number];
@@ -269,6 +278,7 @@
 			kind: 'create',
 			onHeld: () => {
 				suggestedTitle = heldFolderName() ?? '';
+				fromDrop = true;
 				createForm?.requestSubmit();
 			}
 		});
@@ -426,7 +436,8 @@
 		bind:this={createForm}
 		use:enhance={() => {
 			creatingPlaceholder = true;
-			goAfterCreate = suggestedTitle !== '';
+			goAfterCreate = fromDrop;
+			fromDrop = false;
 			return async ({ result, update }) => {
 				await update({ reset: false });
 				creatingPlaceholder = false;
@@ -899,9 +910,8 @@
 					<p class="count">
 						{collection.photoCount}
 						{collection.photoCount === 1 ? 'photograph' : 'photographs'}
-						{#if data.isOwner && collection.visibility !== 'public'}
-							<span class="tag">{collection.visibility}</span>
-						{/if}
+						<!-- The visibility badge lives in the tile's top right corner. Saying
+						     it twice made the caption busier without saying more. -->
 						{#if data.isOwner && collection.hasPassword}
 							<span class="tag">password</span>
 						{/if}

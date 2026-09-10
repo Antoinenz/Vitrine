@@ -76,6 +76,12 @@
 
 <style>
 	dialog {
+		/*
+		 * A modal `<dialog>` is centred by the user agent with `margin: auto`, and
+		 * Tailwind's preflight resets margin on every element — so without this it
+		 * opens hard against the top left corner.
+		 */
+		margin: auto;
 		padding: 0;
 		border: 1px solid var(--color-hairline);
 		background: var(--color-surface-raised);
