@@ -28,6 +28,24 @@ Three levels, in order of trust: an explicit date the artist set, the newest EXI
 
 The subtlety is that `takenAt` is an ISO string inside a JSON column while the other two are integers, so it must be converted to epoch milliseconds before they can share a `coalesce`. Comparing a string to an integer would not error — SQLite sorts every integer below every string, so the gallery would quietly split into two blocks. That conversion is why the ordering lives in its own module with a test against a real database.
 
+## The collections table has one reader
+
+Every read of `collections` lives in `lib/server/collections.ts`, and a test
+fails the build if the table is queried anywhere else. The rule exists because a
+trashed collection has to vanish from nine read paths written at nine different
+times, and the cost of missing one is not a stale listing — it is work the
+artist believes they deleted, still served at a URL a client may already hold.
+
+The first version of the rule banned `from(collections)` and missed three
+queries that reached the table sideways, through `innerJoin`, to check access
+while selecting something else. Those served every rendition and every original
+of a trashed collection to anyone holding a photograph id, which the page
+publishes in `data-photo`.
+
+Queries like that cannot move into the module — the collection is not what they
+select — so they follow a second rule instead: join it if you must, but say
+`notTrashed` while you do, and the same test enforces that.
+
 ## Metadata is an allow-list
 
 A field is published only by being named, so adding a newly extracted EXIF tag can't leak it by default. Location is withheld unless deliberately enabled.

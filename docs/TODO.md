@@ -107,6 +107,11 @@ were wrong.
 
 ## Housekeeping
 
+- [x] ~~Trashed collections went on serving their photographs.~~ `/i/…` and
+      `/api/photos/…/download` joined `collections` to check access but not
+      `deleted_at`, so the page 404'd while the images and originals did not.
+      The guard test now covers joins as well as direct queries
+
 - [ ] `viewer.e2e.ts` "a modified click still opens a real tab" fails roughly one
       run in three. Pre-existing, and hardened twice already — first for clicking
       through the arrival animation, then for a background tab that stays on
