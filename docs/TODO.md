@@ -107,6 +107,12 @@ were wrong.
 
 ## Housekeeping
 
+- [ ] `viewer.e2e.ts` "a modified click still opens a real tab" fails roughly one
+      run in three. Pre-existing, and hardened twice already — first for clicking
+      through the arrival animation, then for a background tab that stays on
+      `about:blank`. What times out now is `context.waitForEvent('page')`, so the
+      popup is never created at all. Passes alone every time
+
 - [ ] `docs/screenshots` is about 13 MB of full-resolution PNGs displayed at
       380px. Downscaling to ~1200px would make cloning the repository markedly
       cheaper
