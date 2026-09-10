@@ -3,6 +3,7 @@ import { db } from '../db';
 import { profiles, photos, collections, COLLECTION_ORDERS } from '../db/schema';
 import type { CollectionOrder, User } from '../db/schema';
 import { LICENCES, DEFAULT_LICENCE } from '$lib/licences';
+import { notTrashed } from '../collections';
 
 /**
  * Reading and writing the artist's profile, independent of any route.
@@ -82,7 +83,7 @@ export function avatarCandidates(userId: string): AvatarCandidate[] {
 	return db
 		.select({ id: photos.id, originalName: photos.originalName, collection: collections.title })
 		.from(photos)
-		.innerJoin(collections, eq(photos.collectionId, collections.id))
+		.innerJoin(collections, and(eq(photos.collectionId, collections.id), notTrashed))
 		.where(
 			and(
 				eq(collections.ownerId, userId),
@@ -167,7 +168,7 @@ export function saveProfile(user: User, data: FormData): void {
 		? (db
 				.select({ id: photos.id })
 				.from(photos)
-				.innerJoin(collections, eq(photos.collectionId, collections.id))
+				.innerJoin(collections, and(eq(photos.collectionId, collections.id), notTrashed))
 				.where(
 					and(
 						eq(photos.id, rawAvatar),

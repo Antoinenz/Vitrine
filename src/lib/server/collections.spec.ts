@@ -49,13 +49,29 @@ function sourceFiles(dir: string): string[] {
 	return found;
 }
 
-/** Every way Drizzle can be pointed at the table. */
+/** Every way Drizzle can be pointed at the table as the subject of a query. */
 const PATTERNS = [
 	'from(collections)',
 	'insert(collections)',
 	'update(collections)',
 	'delete(collections)'
 ];
+
+/**
+ * Reaching the table sideways, through a join.
+ *
+ * This is the hole the first version of these rules left open, and it was not
+ * theoretical. Three queries selected derivatives or photographs and joined
+ * collections along to check access — so trashing a collection removed its page
+ * while `/i/<photoId>/<size>` went on serving every rendition in it, and
+ * `/api/photos/<photoId>/download` went on serving the untouched originals, to
+ * anyone holding a photograph id. The page publishes those ids in `data-photo`.
+ *
+ * Such queries cannot move into `collections.ts` — the collection is not what
+ * they are selecting — so the rule is different in shape: join it if you must,
+ * but say `notTrashed` while you do.
+ */
+const JOINS = ['Join(collections'];
 
 describe('the collections table has one reader', () => {
 	it('is queried only through lib/server/collections.ts', () => {
@@ -68,6 +84,12 @@ describe('the collections table has one reader', () => {
 			const source = readFileSync(file, 'utf8');
 			for (const pattern of PATTERNS) {
 				if (source.includes(pattern)) offenders.push(`${path} — ${pattern}`);
+			}
+
+			for (const join of JOINS) {
+				if (source.includes(join) && !source.includes('notTrashed')) {
+					offenders.push(`${path} — joins collections without notTrashed`);
+				}
 			}
 		}
 
@@ -83,6 +105,14 @@ describe('the collections table has one reader', () => {
 		// pass by finding nothing at all — the worst way for a guard to fail.
 		const source = readFileSync(join(SRC, 'lib/server/collections.ts'), 'utf8');
 		expect(source).toContain('from(collections)');
+	});
+
+	it('notices a join that forgets the filter', () => {
+		// The guard above is only worth having if it fails on the shape that got
+		// through last time, so this checks the check.
+		const leaky = '.innerJoin(collections, eq(photos.collectionId, collections.id))';
+		expect(JOINS.some((j) => leaky.includes(j))).toBe(true);
+		expect(leaky.includes('notTrashed')).toBe(false);
 	});
 
 	it('scans a plausible number of files', () => {

@@ -82,3 +82,42 @@ test('the trash is not reachable without signing in', async ({ page }) => {
 	await page.goto('/trash');
 	await expect(page).toHaveURL(/\/login/);
 });
+
+/**
+ * Trashing has to stop the photographs, not just the page.
+ *
+ * This was shipped broken. The collection page 404'd while `/i/<id>/<size>`
+ * went on serving every rendition and `/api/photos/<id>/download` went on
+ * serving the untouched originals — to anyone holding a photograph id, which
+ * the page publishes in `data-photo`. Discarding a private client gallery
+ * removed it from view and left the work reachable.
+ *
+ * Asserted over HTTP against real URLs, because that is the claim: not that a
+ * row is marked, but that the bytes stop coming.
+ */
+test('a trashed collection stops serving its photographs', async ({ page }) => {
+	await signIn(page);
+
+	// The seeded collection, which actually has processed photographs in it.
+	await page.goto('/c/sierra');
+	const photoId = await page.locator('[data-photo]').first().getAttribute('data-photo');
+	expect(photoId).toBeTruthy();
+
+	const rendition = `/i/${photoId}/320.webp`;
+	expect((await page.request.get(rendition)).status()).toBe(200);
+
+	await page.getByRole('link', { name: /manage photos/i }).click();
+	await page.getByRole('button', { name: /move this collection to the trash/i }).click();
+	await page.getByRole('button', { name: /^move to trash$/i }).click();
+
+	expect((await page.request.get('/c/sierra')).status()).toBe(404);
+	expect((await page.request.get(rendition)).status()).toBe(404);
+	expect((await page.request.get(`/api/photos/${photoId}/download`)).status()).toBe(404);
+
+	// Put it back: the rest of the suite is built on this collection.
+	await page.goto('/trash');
+	const row = page.locator('.items li').filter({ hasText: 'Sierra' });
+	await row.getByRole('button', { name: /^restore$/i }).click();
+
+	expect((await page.request.get(rendition)).status()).toBe(200);
+});

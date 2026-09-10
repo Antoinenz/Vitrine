@@ -8,6 +8,7 @@ import { db } from '$lib/server/db';
 import { derivatives, photos, collections } from '$lib/server/db/schema';
 import { derivativePath } from '$lib/server/storage';
 import { collectionAccess } from '$lib/server/access';
+import { notTrashed } from '$lib/server/collections';
 
 /**
  * Serves a generated rendition, e.g. `/i/<photoId>/1280.webp`.
@@ -42,7 +43,9 @@ export const GET: RequestHandler = async ({ params, locals, cookies, request }) 
 			and(
 				eq(derivatives.photoId, params.photoId),
 				eq(derivatives.width, width),
-				eq(derivatives.format, format === 'jpg' ? 'jpeg' : (format as 'avif' | 'webp' | 'jpeg'))
+				eq(derivatives.format, format === 'jpg' ? 'jpeg' : (format as 'avif' | 'webp' | 'jpeg')),
+				// A trashed collection stops serving its photographs, not just its page.
+				notTrashed
 			)
 		)
 		.get();
