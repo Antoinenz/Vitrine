@@ -3,13 +3,14 @@ import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { stat } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
 import { photos, collections } from '$lib/server/db/schema';
 import { originalPath } from '$lib/server/storage';
 import { collectionAccess } from '$lib/server/access';
 import { stripMetadata } from '$lib/server/images/process';
+import { notTrashed } from '$lib/server/collections';
 
 /**
  * Downloads a single photograph's original file.
@@ -24,7 +25,8 @@ export const GET: RequestHandler = async ({ params, locals, cookies }) => {
 		.select({ photo: photos, collection: collections })
 		.from(photos)
 		.innerJoin(collections, eq(photos.collectionId, collections.id))
-		.where(eq(photos.id, params.photoId))
+		// Trashed work is not downloadable, whoever still has the id.
+		.where(and(eq(photos.id, params.photoId), notTrashed))
 		.get();
 
 	if (!row) error(404);

@@ -34,6 +34,21 @@ import { collections, type Collection } from './db/schema';
 const live = isNull(collections.deletedAt);
 
 /**
+ * The same predicate, for queries that reach the table through a join.
+ *
+ * Those cannot live in this module — they select derivatives or photographs and
+ * bring the collection along to check access — but they still have to exclude
+ * trashed rows, and three of them did not. Trashing a collection removed its
+ * page while `/i/<photoId>/<size>` went on serving every rendition in it, and
+ * `/api/photos/<photoId>/download` went on serving the originals, to anyone
+ * holding a photograph id. The page publishes those ids in `data-photo`.
+ *
+ * `collections.spec.ts` requires any file that joins this table to mention this
+ * export, which is what stops the next such query being written without it.
+ */
+export const notTrashed = live;
+
+/**
  * Accepts a transaction as well as the database.
  *
  * `createCollection` checks slug uniqueness inside the transaction that
