@@ -36,13 +36,29 @@
 				{/if}
 
 				<label for="email">Email</label>
+				<!--
+					`defaultValue`, not `value`.
+
+					`value` is a controlled binding, so Svelte re-applies it during
+					hydration and discards whatever is already in the box — a password
+					manager's autofill, or an email typed by someone quicker than the
+					JavaScript. The submission then carries no email at all, and the reply
+					is "enter your email and password" about a field that visibly had one.
+
+					The password field never had this, because nothing repopulates a
+					password. That asymmetry is why only the email vanished, and why it
+					read as an intermittent fault rather than a rule.
+
+					`defaultValue` sets the initial value and then leaves the field alone,
+					so a rejected sign-in still comes back with the email filled in.
+				-->
 				<input
 					id="email"
 					name="email"
 					type="email"
 					autocomplete="username"
 					required
-					value={form?.email ?? ''}
+					defaultValue={form?.email ?? ''}
 				/>
 
 				<label for="password">Password</label>
