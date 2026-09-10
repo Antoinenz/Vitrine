@@ -13,11 +13,11 @@ import { slugify, isReservedSlug } from '$lib/server/slug';
 import { hashPassword } from '$lib/server/auth';
 import { retryPhoto } from '$lib/server/images/worker';
 import { keyBetween } from '$lib/server/sort-key';
-import { deleteDerivatives, deleteOriginal } from '$lib/server/storage';
 import { slugTaken } from '$lib/server/collections';
 import { updateCollection } from '$lib/server/collections';
 import { VISIBILITIES } from '$lib/visibility';
 import { trash, TRASH_RETENTION_DAYS } from '$lib/server/actions/trash';
+import { photoNotTrashed, moveToTrash as trashPhotos } from '$lib/server/photo-store';
 
 export const load: PageServerLoad = async ({ locals, params, url }) => {
 	const user = requireOwner(locals, url.pathname);
@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 			sortKey: photos.sortKey
 		})
 		.from(photos)
-		.where(eq(photos.collectionId, collection.id))
+		.where(and(eq(photos.collectionId, collection.id), photoNotTrashed))
 		.orderBy(asc(photos.sortKey))
 		.all();
 
@@ -140,7 +140,7 @@ export const actions: Actions = {
 		const photo = db
 			.select({ id: photos.id })
 			.from(photos)
-			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id)))
+			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id), photoNotTrashed))
 			.get();
 		if (!photo) return fail(404, { message: 'That photo is not in this collection.' });
 
@@ -170,7 +170,7 @@ export const actions: Actions = {
 				? (db
 						.select({ sortKey: photos.sortKey })
 						.from(photos)
-						.where(and(eq(photos.id, id), eq(photos.collectionId, collection.id)))
+						.where(and(eq(photos.id, id), eq(photos.collectionId, collection.id), photoNotTrashed))
 						.get()?.sortKey ?? null)
 				: null;
 
@@ -210,7 +210,7 @@ export const actions: Actions = {
 				caption: String(data.get('caption') ?? '').slice(0, 500),
 				altText: String(data.get('altText') ?? '').slice(0, 500)
 			})
-			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id)))
+			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id), photoNotTrashed))
 			.run();
 
 		return { saved: true };
@@ -224,7 +224,7 @@ export const actions: Actions = {
 		const photo = db
 			.select({ id: photos.id })
 			.from(photos)
-			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id)))
+			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id), photoNotTrashed))
 			.get();
 		if (!photo) return fail(404, { message: 'That photo is not in this collection.' });
 
@@ -237,43 +237,19 @@ export const actions: Actions = {
 		const collection = requireOwnedCollection(user.id, params.id);
 		const photoId = String((await request.formData()).get('photoId') ?? '');
 
-		const photo = db
-			.select()
-			.from(photos)
-			.where(and(eq(photos.id, photoId), eq(photos.collectionId, collection.id)))
-			.get();
-		if (!photo) return fail(404, { message: 'That photo is not in this collection.' });
-
-		db.transaction((tx) => {
-			tx.delete(photos).where(eq(photos.id, photoId)).run();
-
-			// Promote another photo rather than leaving the collection with a cover
-			// pointing at a row that no longer exists.
-			if (collection.coverPhotoId === photoId) {
-				const next = tx
-					.select({ id: photos.id })
-					.from(photos)
-					.where(eq(photos.collectionId, collection.id))
-					.orderBy(asc(photos.sortKey))
-					.limit(1)
-					.get();
-				updateCollection(collection.id, { coverPhotoId: next?.id ?? null }, tx);
-			}
-		});
-
-		await deleteDerivatives(photoId);
-
 		/**
-		 * Originals are content-addressed, so the same file uploaded to two
-		 * collections is stored once and referenced twice. Deleting it while
-		 * another row still points at it would blank that other photo.
+		 * Moved, not destroyed.
+		 *
+		 * This used to unlink the original from disk the moment the button was
+		 * pressed. Everything discarded in this gallery goes to the trash first;
+		 * the files survive until a purge, so a mis-click costs nothing.
+		 *
+		 * The cover is un-set by `moveToTrash` if this was it, rather than
+		 * promoted to another photograph — the collection is about to look
+		 * different and choosing its face for it is not this action's business.
 		 */
-		const stillReferenced = db
-			.select({ id: photos.id })
-			.from(photos)
-			.where(eq(photos.storageKey, photo.storageKey))
-			.get();
-		if (!stillReferenced) await deleteOriginal(photo.storageKey);
+		const moved = trashPhotos(collection.id, [photoId]);
+		if (moved === 0) return fail(404, { message: 'That photo is not in this collection.' });
 
 		return { saved: true };
 	},

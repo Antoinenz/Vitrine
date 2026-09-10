@@ -12,6 +12,7 @@ import { collectionAccess } from '$lib/server/access';
 import { rateLimit, LIMITS } from '$lib/server/rate-limit';
 import { slugify } from '$lib/server/slug';
 import { findBySlug } from '$lib/server/collections';
+import { photoNotTrashed } from '$lib/server/photo-store';
 
 /**
  * Streams an entire collection as a ZIP.
@@ -51,7 +52,7 @@ export const GET: RequestHandler = async ({ params, locals, cookies, getClientAd
 	const rows = db
 		.select()
 		.from(photos)
-		.where(and(eq(photos.collectionId, collection.id), eq(photos.status, 'ready')))
+		.where(and(eq(photos.collectionId, collection.id), eq(photos.status, 'ready'), photoNotTrashed))
 		.orderBy(asc(photos.sortKey))
 		.all();
 

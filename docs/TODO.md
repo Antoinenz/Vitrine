@@ -80,6 +80,9 @@ were wrong.
 
 ## Uploading and management
 
+- [x] ~~Deleting a photograph destroyed it immediately.~~ Photographs go to the
+      trash like collections, with restore, purge and the same retention
+
 - [ ] Failure handling on upload: what happens on a dropped connection, a file
       `sharp` cannot decode, a full disk
 - [ ] Progress and recovery that survive a page reload mid-upload

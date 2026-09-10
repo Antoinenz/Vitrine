@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { test, expect } from '@playwright/test';
 
 const EMAIL = 'e2e@test.com';
@@ -38,6 +39,14 @@ async function signIn(page: import('@playwright/test').Page) {
  * collection is gone from the public site — and "gone" is a claim about what a
  * request to its URL returns, not about a row.
  */
+async function jpeg(): Promise<Buffer> {
+	return sharp({
+		create: { width: 400, height: 300, channels: 3, background: { r: 90, g: 60, b: 40 } }
+	})
+		.jpeg()
+		.toBuffer();
+}
+
 test('a discarded collection leaves the gallery and comes back intact', async ({ page }) => {
 	await signIn(page);
 
@@ -120,4 +129,72 @@ test('a trashed collection stops serving its photographs', async ({ page }) => {
 	await row.getByRole('button', { name: /^restore$/i }).click();
 
 	expect((await page.request.get(rendition)).status()).toBe(200);
+});
+
+/**
+ * Deleting a photograph is discarding it, not destroying it.
+ *
+ * The workbench used to unlink the original from disk the moment the button was
+ * pressed. Everything discarded in this gallery now goes to the trash first, so
+ * this asserts the whole loop — gone from the collection, gone from the URLs,
+ * still recoverable.
+ */
+test('a deleted photograph goes to the trash and comes back', async ({ page }) => {
+	await signIn(page);
+
+	await page.goto('/');
+	await page.getByRole('button', { name: 'New collection', exact: true }).click();
+	const field = page.getByRole('textbox', { name: 'Collection name' });
+	await field.fill('Photo Bin');
+	await field.press('Enter');
+
+	await page.goto('/c/photo-bin');
+	await page.locator('input[type=file]').setInputFiles({
+		name: 'binned.jpg',
+		mimeType: 'image/jpeg',
+		buffer: await jpeg()
+	});
+	await expect(page.getByText('Uploaded')).toBeVisible({ timeout: 20_000 });
+
+	/**
+	 * Reload until it appears, rather than waiting on the DOM.
+	 *
+	 * The page is server-rendered and the photograph only exists on it once the
+	 * worker has finished encoding, so `toHaveCount` would poll a document that
+	 * cannot change on its own.
+	 */
+	await expect
+		.poll(
+			async () => {
+				await page.goto('/c/photo-bin');
+				return page.locator('[data-photo]').count();
+			},
+			{ timeout: 30_000, intervals: [1000] }
+		)
+		.toBe(1);
+
+	const photoId = await page.locator('[data-photo]').first().getAttribute('data-photo');
+
+	await page.getByRole('link', { name: /manage photos/i }).click();
+	page.once('dialog', (d) => d.accept());
+	await page
+		.getByRole('button', { name: /^delete$/i })
+		.first()
+		.click();
+
+	// Gone from the collection, and from the addresses that served it.
+	await page.goto('/c/photo-bin');
+	await expect(page.getByText('This collection is empty')).toBeVisible();
+	expect((await page.request.get(`/i/${photoId}/320.webp`)).status()).toBe(404);
+	expect((await page.request.get(`/api/photos/${photoId}/download`)).status()).toBe(404);
+
+	// And recoverable.
+	await page.goto('/trash');
+	const row = page.locator('.items li').filter({ hasText: 'binned.jpg' });
+	await expect(row).toBeVisible();
+	await row.getByRole('button', { name: /^restore$/i }).click();
+
+	await page.goto('/c/photo-bin');
+	await expect(page.locator('[data-photo]')).toHaveCount(1);
+	expect((await page.request.get(`/i/${photoId}/320.webp`)).status()).toBe(200);
 });

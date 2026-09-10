@@ -1,6 +1,6 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '../db';
-import { photos, profiles, type User, type Visibility } from '../db/schema';
+import { profiles, type User, type Visibility } from '../db/schema';
 import { VISIBILITIES } from '$lib/visibility';
 import { slugify, uniqueSlug, isReservedSlug } from '../slug';
 import { keyBetween, keysAfter } from '../sort-key';
@@ -14,6 +14,7 @@ import {
 	type Runner
 } from '../collections';
 import { insertCollection } from '../collections';
+import { countForCollection } from '../photo-store';
 
 /**
  * Collection operations, independent of any route.
@@ -123,11 +124,7 @@ export function renameCollection(
 	const collection = findOwnedById(user.id, id, runner);
 	if (!collection) throw new CollectionInputError('That collection no longer exists.');
 
-	const { count } = runner
-		.select({ count: sql<number>`count(*)` })
-		.from(photos)
-		.where(eq(photos.collectionId, id))
-		.get() ?? { count: 0 };
+	const count = countForCollection(id, runner);
 
 	/**
 	 * Whether the address was chosen by the artist or generated from the title.

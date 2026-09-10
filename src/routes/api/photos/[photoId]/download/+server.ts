@@ -11,6 +11,7 @@ import { originalPath } from '$lib/server/storage';
 import { collectionAccess } from '$lib/server/access';
 import { stripMetadata } from '$lib/server/images/process';
 import { notTrashed } from '$lib/server/collections';
+import { photoNotTrashed } from '$lib/server/photo-store';
 
 /**
  * Downloads a single photograph's original file.
@@ -26,7 +27,7 @@ export const GET: RequestHandler = async ({ params, locals, cookies }) => {
 		.from(photos)
 		.innerJoin(collections, eq(photos.collectionId, collections.id))
 		// Trashed work is not downloadable, whoever still has the id.
-		.where(and(eq(photos.id, params.photoId), notTrashed))
+		.where(and(eq(photos.id, params.photoId), notTrashed, photoNotTrashed))
 		.get();
 
 	if (!row) error(404);

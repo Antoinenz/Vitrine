@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { Readable } from 'node:stream';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
 import { photos } from '$lib/server/db/schema';
@@ -10,6 +10,7 @@ import { keyBetween } from '$lib/server/sort-key';
 import { schedule } from '$lib/server/images/worker';
 import { MAX_UPLOAD_BYTES } from '$lib/server/config';
 import { updateCollection } from '$lib/server/collections';
+import { photoNotTrashed } from '$lib/server/photo-store';
 
 /**
  * Receives one photo per request, as a raw body.
@@ -80,7 +81,7 @@ export const POST: RequestHandler = async (event) => {
 		const last = tx
 			.select({ sortKey: photos.sortKey })
 			.from(photos)
-			.where(eq(photos.collectionId, collection.id))
+			.where(and(eq(photos.collectionId, collection.id), photoNotTrashed))
 			.orderBy(desc(photos.sortKey))
 			.limit(1)
 			.get();

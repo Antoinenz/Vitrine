@@ -1,11 +1,16 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { inArray, sql } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
-import { db } from '$lib/server/db';
-import { photos } from '$lib/server/db/schema';
 import { requireOwner } from '$lib/server/guards';
 import { listTrashed } from '$lib/server/collections';
-import { restore, purge, TRASH_RETENTION_DAYS } from '$lib/server/actions/trash';
+import {
+	restore,
+	purge,
+	restorePhoto,
+	purgePhoto,
+	listTrashedPhotos,
+	TRASH_RETENTION_DAYS
+} from '$lib/server/actions/trash';
+import { countsForCollections } from '$lib/server/photo-store';
 
 /**
  * The trash.
@@ -26,26 +31,25 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	 * discarding a great deal at once, which is exactly when it should not
 	 * become slow.
 	 */
-	const counts = new Map<string, number>();
-	if (trashed.length > 0) {
-		const rows = db
-			.select({ collectionId: photos.collectionId, n: sql<number>`count(*)` })
-			.from(photos)
-			.where(
-				inArray(
-					photos.collectionId,
-					trashed.map((c) => c.id)
-				)
-			)
-			.groupBy(photos.collectionId)
-			.all();
-		for (const row of rows) counts.set(row.collectionId, row.n);
-	}
+	const counts = countsForCollections(trashed.map((c) => c.id));
 
 	const retentionMs = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+	const purgesAt = (at: Date | null) => (at ? new Date(at.getTime() + retentionMs) : null);
 
 	return {
 		retentionDays: TRASH_RETENTION_DAYS,
+
+		photographs: listTrashedPhotos(user.id).map((row) => ({
+			id: row.photo.id,
+			name: row.photo.originalName,
+			collectionTitle: row.collectionTitle,
+			// A photograph inside a collection that is itself in the trash cannot be
+			// brought back on its own, and saying so is kinder than a restore that
+			// appears to work and changes nothing visible.
+			collectionTrashed: row.collectionTrashed,
+			deletedAt: row.photo.deletedAt,
+			purgesAt: purgesAt(row.photo.deletedAt)
+		})),
 		collections: trashed.map((c) => ({
 			id: c.id,
 			title: c.title,
@@ -53,7 +57,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			deletedAt: c.deletedAt,
 			// Precomputed, so the page never has to agree with the server about
 			// what "thirty days from now" means.
-			purgesAt: c.deletedAt ? new Date(c.deletedAt.getTime() + retentionMs) : null
+			purgesAt: purgesAt(c.deletedAt)
 		}))
 	};
 };
@@ -88,12 +92,38 @@ export const actions: Actions = {
 		return { purged: true };
 	},
 
+	restorePhoto: async ({ locals, request }) => {
+		const user = requireOwner(locals);
+		const id = String((await request.formData()).get('id') ?? '');
+
+		if (!restorePhoto(user.id, id)) {
+			return fail(404, { message: 'That photograph is no longer in the trash.' });
+		}
+		return { restoredPhoto: true };
+	},
+
+	purgePhoto: async ({ locals, request }) => {
+		const user = requireOwner(locals);
+		const id = String((await request.formData()).get('id') ?? '');
+
+		if (!(await purgePhoto(user.id, id))) {
+			return fail(404, { message: 'That photograph is no longer in the trash.' });
+		}
+		return { purged: true };
+	},
+
 	empty: async ({ locals }) => {
 		const user = requireOwner(locals);
 
 		// Read the list first: purging mutates what `listTrashed` would return.
 		for (const collection of listTrashed(user.id)) {
 			await purge(user.id, collection.id);
+		}
+
+		// Photographs after collections: purging a collection takes its own with
+		// it, so this pass has fewer rows and cannot trip over one already gone.
+		for (const row of listTrashedPhotos(user.id)) {
+			await purgePhoto(user.id, row.photo.id);
 		}
 
 		redirect(303, '/trash');

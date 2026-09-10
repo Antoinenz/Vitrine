@@ -46,6 +46,29 @@ Queries like that cannot move into the module — the collection is not what the
 select — so they follow a second rule instead: join it if you must, but say
 `notTrashed` while you do, and the same test enforces that.
 
+Photographs get a weaker version of the same idea, because thirty queries across
+an upload, a processing state machine and reordering do not reduce to five
+shapes. `photo-store.ts` owns what is shared, and any other file querying the
+table must mention `photoNotTrashed`. That proves the question was asked and
+nothing more — which is worth stating plainly, since the same join-shaped hole
+opened in both files and was found by an end-to-end test rather than by either
+guard.
+
+## Nothing is deleted by one click
+
+Collections and photographs both carry `deleted_at`. Discarding sets it and
+releases what the row was holding — a collection gives up its slug, a
+photograph gives up being the cover — and a purge, thirty days later or on
+request, is the only thing that removes rows and files.
+
+Permanent deletion lives in one function per table and refuses anything not
+already in the trash, so there is no path from a mis-click to unrecoverable
+loss that does not pass through a second, separate decision.
+
+A trashed row still counts as a reference to its stored file. Originals are
+content-addressed and shared between collections, so unlinking one while a
+trashed row still needs it would leave nothing to restore.
+
 ## Metadata is an allow-list
 
 A field is published only by being named, so adding a newly extracted EXIF tag can't leak it by default. Location is withheld unless deliberately enabled.

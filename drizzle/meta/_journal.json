@@ -36,6 +36,13 @@
       "when": 1788941931676,
       "tag": "0005_collection_trash",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789034295958,
+      "tag": "0006_photo_trash",
+      "breakpoints": true
     }
   ]
 }
