@@ -51,10 +51,39 @@ export interface StackHoverHandle {
 	 * the very next `getBoundingClientRect` sees flat geometry.
 	 */
 	resetTilt(): void;
+	/**
+	 * Stops tilt, magnet and sway until called again with `false`.
+	 *
+	 * Unlike `resetTilt`, which suspends permanently because it is used just
+	 * before the element is measured and navigated away from, this is reversible.
+	 */
+	setSuspended(value: boolean): void;
 	destroy(): void;
 }
 
 const handles = new WeakMap<HTMLElement, StackHoverHandle>();
+
+/**
+ * Every live handle, so all of them can be quietened at once.
+ *
+ * A `Set` beside the `WeakMap` rather than instead of it: the map answers "what
+ * is bound to this element", which is what the transition needs, and the set
+ * answers "everything currently bound", which reorder mode needs. `destroy`
+ * clears both.
+ */
+const live = new Set<StackHoverHandle>();
+
+/**
+ * Stops or restarts the cursor-driven motion on every stack.
+ *
+ * Reorder mode uses this. Three kinds of motion at once — the sway, the tilt
+ * that follows the pointer, and the jiggle that says the tiles can be dragged —
+ * is noise rather than delight, and the tilt in particular fights a drag: the
+ * thing under the cursor leans toward it while you are trying to pick it up.
+ */
+export function suspendStacks(value: boolean): void {
+	for (const handle of live) handle.setSuspended(value);
+}
 
 export function getStackHandle(el: HTMLElement | null): StackHoverHandle | undefined {
 	return el ? handles.get(el) : undefined;
@@ -261,7 +290,16 @@ export function stackHover(node: HTMLElement) {
 			gsap.set(node, { rotationX: 0, rotationY: 0 });
 			gsap.set(cards, { x: 0, y: 0, z: 0, rotation: 0 });
 		},
+		setSuspended(value: boolean) {
+			suspended = value;
+			syncDrift();
+			if (value) {
+				gsap.set(node, { rotationX: 0, rotationY: 0 });
+				gsap.set(cards, { x: 0, y: 0, z: 0, rotation: 0 });
+			}
+		},
 		destroy() {
+			live.delete(handle);
 			node.removeEventListener('pointermove', onMove);
 			node.removeEventListener('pointerenter', onEnter);
 			node.removeEventListener('pointerleave', onLeave);
@@ -274,5 +312,6 @@ export function stackHover(node: HTMLElement) {
 	};
 
 	handles.set(node, handle);
+	live.add(handle);
 	return handle;
 }

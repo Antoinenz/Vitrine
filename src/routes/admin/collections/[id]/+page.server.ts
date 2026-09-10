@@ -16,9 +16,8 @@ import { keyBetween } from '$lib/server/sort-key';
 import { deleteDerivatives, deleteOriginal } from '$lib/server/storage';
 import { slugTaken } from '$lib/server/collections';
 import { updateCollection } from '$lib/server/collections';
+import { VISIBILITIES } from '$lib/visibility';
 import { trash, TRASH_RETENTION_DAYS } from '$lib/server/actions/trash';
-
-const VISIBILITIES = new Set<Visibility>(['public', 'unlisted', 'private']);
 
 export const load: PageServerLoad = async ({ locals, params, url }) => {
 	const user = requireOwner(locals, url.pathname);

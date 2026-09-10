@@ -7,7 +7,10 @@
 	import PhotoImage from '$lib/components/PhotoImage.svelte';
 	import { GRID_SIZES, STACK_SIZES } from '$lib/photo-sizes';
 	import { warmPhotos } from '$lib/photo-warm';
-	import { stackHover } from '$lib/motion/stack-hover';
+	import { stackHover, suspendStacks } from '$lib/motion/stack-hover';
+	import ContextMenu from '$lib/components/ContextMenu.svelte';
+	import VisibilityDialog from '$lib/components/VisibilityDialog.svelte';
+	import { visibilityLabel } from '$lib/visibility';
 	import { captureStack, playIntoStack, hasPending } from '$lib/motion/stack-transition';
 	import { entrance } from '$lib/motion/entrance';
 	import OwnerBar from '$lib/components/OwnerBar.svelte';
@@ -29,6 +32,155 @@
 
 	/** Where a dropped folder should send us once its collection exists. */
 	let goAfterCreate = $state(false);
+
+	type Tile = (typeof data.collections)[number];
+
+	/** The collection whose menu is open, and where it was asked for. */
+	let menuFor = $state<Tile | null>(null);
+	let menuAt = $state({ x: 0, y: 0 });
+
+	/** The collection whose visibility is being changed. */
+	let visibilityFor = $state<Tile | null>(null);
+
+	let trashForm = $state<HTMLFormElement>();
+	let trashId = $state('');
+
+	function openMenu(collection: Tile, x: number, y: number) {
+		menuFor = collection;
+		menuAt = { x, y };
+	}
+
+	/**
+	 * Our menu, unless the artist asked for the browser's.
+	 *
+	 * There is no way to open the browser's own context menu from a page — the
+	 * only control a page has is whether to prevent the event — so the escape
+	 * hatch cannot be a menu item. Two conventions cover it instead: holding
+	 * Shift, which Firefox does natively for pages that override the menu, and
+	 * right-clicking a second time, which the open menu's backdrop lets through.
+	 */
+	function onTileContextMenu(event: MouseEvent, collection: Tile) {
+		if (!data.isOwner || event.shiftKey) return;
+
+		event.preventDefault();
+		openMenu(collection, event.clientX, event.clientY);
+	}
+
+	/**
+	 * Each of these takes the collection as an argument rather than reading the
+	 * menu's own state.
+	 *
+	 * `{@const target = menuFor}` compiles to a lazy derived, so a handler that
+	 * closed the menu before using `target` read it back as null and did nothing
+	 * — the menu shut and no dialog appeared. An argument is evaluated before the
+	 * call, while the menu is still open, which removes the ordering hazard
+	 * rather than relying on remembering it.
+	 */
+	function renameFromMenu(collection: Tile) {
+		menuFor = null;
+		beginRename(collection.id, collection.title);
+	}
+
+	function chooseVisibility(collection: Tile) {
+		menuFor = null;
+		visibilityFor = collection;
+	}
+
+	function trashCollection(collection: Tile) {
+		trashId = collection.id;
+		menuFor = null;
+		tick().then(() => trashForm?.requestSubmit());
+	}
+
+	// ---------------------------------------------------------------- reorder
+
+	/**
+	 * Reorder mode: the tiles jiggle and can be dragged.
+	 *
+	 * A mode rather than always-on dragging, because these are links first. A
+	 * gallery whose collections slide about whenever a click lands slightly wrong
+	 * would be worse than one that asks first.
+	 */
+	let reordering = $state(false);
+
+	/**
+	 * The order being dragged into, or null while the server's order stands.
+	 *
+	 * Held locally so a tile follows the cursor immediately rather than after a
+	 * round trip — dragging something that only moves once the server agrees does
+	 * not feel like dragging.
+	 */
+	let localOrder = $state<string[] | null>(null);
+	let draggingId = $state<string | null>(null);
+	let reorderForm = $state<HTMLFormElement>();
+	let reorderFields = $state({ id: '', before: '', after: '' });
+
+	/** Shown once, when the first drag changes how the whole gallery is sorted. */
+	let switchedToCustom = $state(false);
+
+	const tiles = $derived(
+		localOrder
+			? localOrder
+					.map((id) => data.collections.find((c) => c.id === id))
+					.filter((c): c is Tile => !!c)
+			: data.collections
+	);
+
+	function startReordering() {
+		menuFor = null;
+		reordering = true;
+		suspendStacks(true);
+	}
+
+	function stopReordering() {
+		reordering = false;
+		localOrder = null;
+		draggingId = null;
+		suspendStacks(false);
+	}
+
+	function onDragStart(event: DragEvent, id: string) {
+		draggingId = id;
+		localOrder = tiles.map((c) => c.id);
+		// Required for a drag to start at all in Firefox.
+		event.dataTransfer?.setData('text/plain', id);
+		if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+	}
+
+	/** Slides the dragged tile into the position under the cursor. */
+	function onDragOver(event: DragEvent, overId: string) {
+		if (!draggingId || draggingId === overId || !localOrder) return;
+		event.preventDefault();
+
+		const next = [...localOrder];
+		const from = next.indexOf(draggingId);
+		const to = next.indexOf(overId);
+		if (from === -1 || to === -1) return;
+
+		next.splice(to, 0, ...next.splice(from, 1));
+		localOrder = next;
+	}
+
+	/**
+	 * Commits the position by naming the neighbours rather than an index.
+	 *
+	 * The server computes a key between them, so two people — or two tabs —
+	 * reordering at once cannot settle on the same position, and nothing has to
+	 * agree about what index anything is at.
+	 */
+	function onDragEnd() {
+		const id = draggingId;
+		draggingId = null;
+		if (!id || !localOrder) return;
+
+		const at = localOrder.indexOf(id);
+		reorderFields = {
+			id,
+			before: at > 0 ? localOrder[at - 1] : '',
+			after: at < localOrder.length - 1 ? localOrder[at + 1] : ''
+		};
+		tick().then(() => reorderForm?.requestSubmit());
+	}
 	let editingProfile = $state(false);
 
 	/**
@@ -311,6 +463,85 @@
 		<input type="hidden" name="title" value={draft} />
 	</form>
 
+	<form
+		method="POST"
+		action="?/trashCollection"
+		bind:this={trashForm}
+		use:enhance={() =>
+			async ({ update }) =>
+				update({ reset: false })}
+		hidden
+	>
+		<input type="hidden" name="id" value={trashId} />
+	</form>
+
+	<form
+		method="POST"
+		action="?/reorderCollection"
+		bind:this={reorderForm}
+		use:enhance={() =>
+			async ({ result, update }) => {
+				await update({ reset: false });
+				localOrder = null;
+				if (
+					result.type === 'success' &&
+					(result.data as { switchedToCustom?: boolean })?.switchedToCustom
+				) {
+					switchedToCustom = true;
+				}
+			}}
+		hidden
+	>
+		<input type="hidden" name="id" value={reorderFields.id} />
+		<input type="hidden" name="before" value={reorderFields.before} />
+		<input type="hidden" name="after" value={reorderFields.after} />
+	</form>
+
+	<ContextMenu
+		open={menuFor !== null}
+		x={menuAt.x}
+		y={menuAt.y}
+		label={menuFor ? `Actions for ${menuFor.title}` : 'Actions'}
+		onClose={() => (menuFor = null)}
+	>
+		{#if menuFor}
+			{@const target = menuFor}
+			<!-- Open and Open in new tab are here because our menu replaces the
+			     browser's, and those are the two things it was most used for. -->
+			<a href={resolve('/c/[slug]', { slug: target.slug })} onclick={() => (menuFor = null)}>
+				Open
+			</a>
+			<a
+				href={resolve('/c/[slug]', { slug: target.slug })}
+				target="_blank"
+				rel="noopener"
+				onclick={() => (menuFor = null)}
+			>
+				Open in new tab
+			</a>
+			<hr />
+			<button type="button" onclick={() => renameFromMenu(target)}>Rename</button>
+			<button type="button" onclick={() => chooseVisibility(target)}>Change visibility…</button>
+			<button type="button" onclick={startReordering}>Reorder collections</button>
+			<a
+				href={resolve('/admin/collections/[id]', { id: target.id })}
+				onclick={() => (menuFor = null)}
+			>
+				Properties…
+			</a>
+			<hr />
+			<button type="button" class="danger" onclick={() => trashCollection(target)}>
+				Move to trash
+			</button>
+		{/if}
+	</ContextMenu>
+
+	<VisibilityDialog
+		open={visibilityFor !== null}
+		collection={visibilityFor}
+		onClose={() => (visibilityFor = null)}
+	/>
+
 	<ProfileModal
 		open={editingProfile}
 		onClose={() => (editingProfile = false)}
@@ -368,7 +599,24 @@
 		{/if}
 	</p>
 {:else}
-	<ul class="collections">
+	{#if reordering}
+		<div class="reorder-bar" role="status">
+			<span>Drag the collections into the order you want.</span>
+			<button type="button" class="primary" onclick={stopReordering}>Done</button>
+		</div>
+	{/if}
+
+	{#if switchedToCustom}
+		<p class="notice" role="status">
+			Your gallery is now in a custom order rather than sorted by date. You can put it back under
+			<a href={resolve('/settings')}>settings</a>.
+			<button type="button" class="dismiss" onclick={() => (switchedToCustom = false)}>
+				Dismiss
+			</button>
+		</p>
+	{/if}
+
+	<ul class="collections" class:reordering>
 		<!--
 			The tile appears on the click, not on the reply.
 
@@ -404,8 +652,16 @@
 			</li>
 		{/if}
 
-		{#each data.collections as collection (collection.id)}
-			<li>
+		{#each tiles as collection (collection.id)}
+			<li
+				class:dragging={draggingId === collection.id}
+				draggable={reordering && data.isOwner}
+				oncontextmenu={(e) => onTileContextMenu(e, collection)}
+				ondragstart={(e) => onDragStart(e, collection.id)}
+				ondragover={(e) => onDragOver(e, collection.id)}
+				ondragend={onDragEnd}
+				ondrop={(e) => e.preventDefault()}
+			>
 				<!--
 					Labelled explicitly, because the caption is no longer inside it.
 
@@ -511,6 +767,72 @@
 						{/each}
 					</div>
 				</a>
+
+				{#if data.isOwner && !reordering}
+					<!--
+						Anchored to the tile, not to the pile.
+
+						`.stack` is a `preserve-3d` context: anything inside it is laid out
+						in the same 3D space as the prints and would tilt, scale and
+						z-fight with them under the cursor. The chrome sits outside that,
+						over the stack's own box, which is a plain rectangle of fixed
+						proportions and therefore in the same place on every collection.
+					-->
+					<div class="tile-chrome">
+						{#if collection.visibility !== 'public'}
+							<button
+								type="button"
+								class="chip"
+								aria-label="{visibilityLabel(collection.visibility)} — change who can see this"
+								title={visibilityLabel(collection.visibility)}
+								onclick={() => (visibilityFor = collection)}
+							>
+								{#if collection.visibility === 'private'}
+									<!-- An eye with a line through it. Drawn rather than a
+									     character, so it cannot be a missing glyph on a machine
+									     without the font. -->
+									<svg viewBox="0 0 20 20" aria-hidden="true">
+										<path
+											d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.4"
+										/>
+										<circle cx="10" cy="10" r="2.2" fill="currentColor" />
+										<path d="M4 16 16 4" stroke="currentColor" stroke-width="1.6" />
+									</svg>
+								{:else}
+									<!-- A link, for unlisted: reachable if you have it. -->
+									<svg viewBox="0 0 20 20" aria-hidden="true">
+										<path
+											d="M8 12a3 3 0 0 1 0-4l2-2a3 3 0 0 1 4 4l-1 1M12 8a3 3 0 0 1 0 4l-2 2a3 3 0 0 1-4-4l1-1"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.5"
+											stroke-linecap="round"
+										/>
+									</svg>
+								{/if}
+							</button>
+						{/if}
+
+						<button
+							type="button"
+							class="chip dots"
+							aria-label="Actions for {collection.title}"
+							onclick={(e) => {
+								const r = e.currentTarget.getBoundingClientRect();
+								openMenu(collection, r.left, r.bottom + 4);
+							}}
+						>
+							<svg viewBox="0 0 20 20" aria-hidden="true">
+								<circle cx="5" cy="10" r="1.6" fill="currentColor" />
+								<circle cx="10" cy="10" r="1.6" fill="currentColor" />
+								<circle cx="15" cy="10" r="1.6" fill="currentColor" />
+							</svg>
+						</button>
+					</div>
+				{/if}
 
 				<!--
 					The caption sits outside the link, not inside it.
@@ -757,6 +1079,144 @@
 
 	.caption :global(.rename):focus {
 		outline: none;
+	}
+
+	/* The tile is the positioning context for its chrome. */
+	.collections li {
+		position: relative;
+	}
+
+	.tile-chrome {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		z-index: 5;
+		display: flex;
+		gap: 0.3rem;
+		/*
+		 * Quiet until the tile is approached. The gallery is the artist's own
+		 * public page, and controls sitting permanently on top of the photographs
+		 * would make it look like a dashboard rather than a gallery.
+		 */
+		opacity: 0;
+		transition: opacity var(--duration-hover) var(--ease-out-soft);
+	}
+
+	.collections li:hover .tile-chrome,
+	.collections li:focus-within .tile-chrome,
+	/* A non-public collection always shows its badge: an artist should be able
+	   to see what is and is not published without touching anything. */
+	.tile-chrome:has(.chip:not(.dots)) {
+		opacity: 1;
+	}
+
+	.chip {
+		display: grid;
+		place-items: center;
+		width: 1.65rem;
+		height: 1.65rem;
+		padding: 0;
+		border: 1px solid var(--color-hairline);
+		border-radius: 50%;
+		background: var(--color-surface-raised);
+		color: var(--color-ink-muted);
+		cursor: pointer;
+	}
+
+	.chip:hover {
+		color: var(--color-ink);
+		border-color: var(--color-ink);
+	}
+
+	.chip svg {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.reorder-bar,
+	.notice {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		max-width: 78rem;
+		margin: 0 auto 1rem;
+		padding: 0.6rem 1.5rem;
+		font-size: 0.88rem;
+		color: var(--color-ink-muted);
+	}
+
+	.reorder-bar {
+		justify-content: space-between;
+		border-top: 1px solid var(--color-hairline);
+		border-bottom: 1px solid var(--color-hairline);
+	}
+
+	.reorder-bar button,
+	.dismiss {
+		font: inherit;
+		font-size: 0.82rem;
+		padding: 0.3rem 0.7rem;
+		border: 1px solid var(--color-hairline);
+		background: none;
+		color: var(--color-ink-muted);
+		cursor: pointer;
+	}
+
+	.reorder-bar .primary {
+		border-color: var(--color-ink);
+		background: var(--color-ink);
+		color: var(--color-surface-raised);
+	}
+
+	/*
+	 * The jiggle, on the independent `rotate` property.
+	 *
+	 * Not inside `transform`. CSS owns `.layer`'s transform and GSAP owns
+	 * `.card`'s, and a third writer of the same property is what the split
+	 * between them exists to prevent — the two would overwrite each other every
+	 * frame and flicker. `rotate` is a separate property that composes with both,
+	 * so nothing has to know about anything else. It also runs on the compositor.
+	 */
+	@keyframes jiggle {
+		0%,
+		100% {
+			rotate: -0.7deg;
+		}
+		50% {
+			rotate: 0.7deg;
+		}
+	}
+
+	.collections.reordering li {
+		animation: jiggle 0.28s ease-in-out infinite;
+		cursor: grab;
+	}
+
+	/* Each tile out of step with its neighbours, or the row pulses as one object. */
+	.collections.reordering li:nth-child(even) {
+		animation-delay: -0.14s;
+	}
+
+	.collections.reordering li:active {
+		cursor: grabbing;
+	}
+
+	.collections.reordering li.dragging {
+		opacity: 0.4;
+		animation: none;
+	}
+
+	/* Nothing here is a link while the tiles are being arranged. */
+	.collections.reordering a {
+		pointer-events: none;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.collections.reordering li {
+			animation: none;
+			outline: 1px dashed var(--color-hairline);
+			outline-offset: 4px;
+		}
 	}
 
 	.title-link {
