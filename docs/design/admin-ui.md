@@ -169,10 +169,14 @@ Each stage ships on its own.
    Done. One thing settled while building it: renaming moves the address only
    while the collection is empty and its slug was generated rather than chosen,
    because the address is what gets sent to a client.
-3. **Chrome and context menu** — three-dots, badge, right-click, the visibility
-   dialog, properties.
-4. **Reorder** — jiggle on `rotate`, drag and drop, the automatic switch to
-   custom order.
+3. ~~**Chrome and context menu** — three-dots, badge, right-click, the
+   visibility dialog, properties.~~ Done. The browser's own menu turned out to
+   be unreachable from a page, so it is Shift+right-click and right-click-again
+   instead of a menu item.
+4. ~~**Reorder** — jiggle on `rotate`, drag and drop, the automatic switch to
+   custom order.~~ Done, with one thing the plan missed: switching to custom
+   order has to seed every key from the order on screen first, or the first drag
+   reshuffles the whole gallery.
 5. **Photo selection** — checkboxes and the action ribbon, inside a collection.
 
 The **motion customiser** is deliberately unnumbered, because where it belongs
