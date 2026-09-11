@@ -65,6 +65,16 @@ async function jpeg(): Promise<Buffer> {
  * calls the upload endpoint directly.
  */
 async function dropFile(page: Page, name: string, base64: string, mimeType = 'image/jpeg') {
+	/**
+	 * Wait for the page to settle before dispatching.
+	 *
+	 * The drop handlers are attached during hydration, and a `DragEvent`
+	 * dispatched before that lands on a window with nothing listening — no error,
+	 * no upload, nothing to attribute it to. It failed only in a full run, where
+	 * the machine is busy enough for hydration to lag the test.
+	 */
+	await page.waitForLoadState('networkidle');
+
 	await page.evaluate(
 		async ({ name, base64, mimeType }) => {
 			const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));

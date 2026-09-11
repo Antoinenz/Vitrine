@@ -30,6 +30,17 @@
 	 */
 	--color-accent: #1c1917;
 
+	/*
+	 * Selection blue, and the only saturated colour in the palette.
+	 *
+	 * `--color-accent` is ink here — the gallery is deliberately monochrome so
+	 * that nothing competes with the photographs. Selection is the one state that
+	 * has to read instantly across a page of them, and a darker grey on a grid of
+	 * dark photographs does not. It is a system convention as much as a colour:
+	 * a blue tick means chosen, in every file manager the artist already uses.
+	 */
+	--color-select: #2563eb;
+
 	/* Type. A single system stack: no webfont request in front of the images. */
 	--font-sans:
 		ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;

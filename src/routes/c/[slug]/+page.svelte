@@ -7,6 +7,8 @@
 	import { playIntoGrid, revealGrid, captureGrid } from '$lib/motion/stack-transition';
 	import { eagerOnArrival, markArrived } from '$lib/motion/arrival';
 	import { GRID_SIZES } from '$lib/photo-sizes';
+	import { tick } from 'svelte';
+	import { enhance } from '$app/forms';
 	import { entrance } from '$lib/motion/entrance';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Uploader from '$lib/components/Uploader.svelte';
@@ -136,6 +138,82 @@
 	});
 
 	let gridEl = $state<HTMLElement>();
+
+	// ------------------------------------------------------------- selecting
+
+	/**
+	 * Which photographs are selected, in no particular order.
+	 *
+	 * An array rather than a `Set`, because it is small, it is read in the
+	 * template on every render, and `includes` on a handful of ids is not worth a
+	 * reactive collection wrapper to avoid.
+	 */
+	let selected = $state<string[]>([]);
+
+	/**
+	 * The last photograph checked, so Shift can extend from it.
+	 *
+	 * Held as an index rather than an id: a range is a run of positions in the
+	 * grid, and the artist is reasoning about what they can see.
+	 */
+	let anchor = -1;
+
+	const selectedCount = $derived(selected.length);
+	const isSelected = (id: string) => selected.includes(id);
+
+	function toggle(index: number, id: string, shiftKey: boolean) {
+		if (shiftKey && anchor >= 0) {
+			const [from, to] = anchor < index ? [anchor, index] : [index, anchor];
+			const range = data.photos.slice(from, to + 1).map((p) => p.id);
+
+			// Adds to the selection rather than replacing it, so several runs can be
+			// gathered up — and never removes, because a Shift-click that quietly
+			// deselected half of what was chosen would be a nasty surprise.
+			selected = [...new Set([...selected, ...range])];
+			return;
+		}
+
+		anchor = index;
+		selected = isSelected(id) ? selected.filter((s) => s !== id) : [...selected, id];
+	}
+
+	function clearSelection() {
+		selected = [];
+		anchor = -1;
+	}
+
+	function selectAll() {
+		selected = data.photos.map((p) => p.id);
+	}
+
+	/**
+	 * Dropped whenever the collection changes underneath.
+	 *
+	 * An upload calls `invalidateAll`, and a selection of ids that are no longer
+	 * on the page would leave the ribbon claiming a count it cannot act on.
+	 */
+	$effect(() => {
+		const ids = new Set(data.photos.map((p) => p.id));
+		const surviving = selected.filter((id) => ids.has(id));
+		if (surviving.length !== selected.length) selected = surviving;
+	});
+
+	let photoActionForm = $state<HTMLFormElement>();
+	let photoAction = $state({ action: '', ids: '', photoId: '' });
+
+	function submitPhotoAction(action: string, fields: { ids?: string; photoId?: string } = {}) {
+		photoAction = { action, ids: fields.ids ?? '', photoId: fields.photoId ?? '' };
+		tick().then(() => photoActionForm?.requestSubmit());
+	}
+
+	function trashSelected() {
+		submitPhotoAction('?/trashPhotos', { ids: selected.join(',') });
+	}
+
+	function setCover() {
+		if (selected.length !== 1) return;
+		submitPhotoAction('?/setCover', { photoId: selected[0] });
+	}
 
 	/**
 	 * Photographs dropped anywhere on this page go into this collection.
@@ -364,9 +442,84 @@
 		animates into. The first few match the photos shown in the stack on the
 		artist page, in the same order, so they can be paired up by index.
 	-->
+	{#if data.isOwner}
+		<form
+			method="POST"
+			action={photoAction.action}
+			bind:this={photoActionForm}
+			use:enhance={() =>
+				async ({ update }) => {
+					await update({ reset: false });
+					clearSelection();
+				}}
+			hidden
+		>
+			<input type="hidden" name="ids" value={photoAction.ids} />
+			<input type="hidden" name="photoId" value={photoAction.photoId} />
+		</form>
+
+		<!--
+			Appears only once something is chosen.
+			
+			A bar of disabled buttons above every collection would be permanent
+			furniture for an occasional job, on a page whose purpose is looking at
+			photographs.
+		-->
+		{#if selectedCount > 0}
+			<div class="ribbon" role="toolbar" aria-label="Selected photographs">
+				<span class="count">
+					{selectedCount}
+					{selectedCount === 1 ? 'photograph' : 'photographs'} selected
+				</span>
+
+				<div class="ribbon-actions">
+					{#if selectedCount < data.photos.length}
+						<button type="button" onclick={selectAll}>Select all</button>
+					{/if}
+					<button type="button" onclick={clearSelection}>Deselect</button>
+					<!-- Only ever one face, so this is the one action that needs exactly
+					     one photograph rather than at least one. -->
+					<button type="button" disabled={selectedCount !== 1} onclick={setCover}>
+						Set as cover
+					</button>
+					<button type="button" class="danger" onclick={trashSelected}>Move to trash</button>
+				</div>
+			</div>
+		{/if}
+	{/if}
+
 	<div class="grid" bind:this={gridEl}>
 		{#each data.photos as photo, i (photo.id)}
-			<figure data-photo={photo.id} data-index={i}>
+			<figure data-photo={photo.id} data-index={i} class:selected={isSelected(photo.id)}>
+				{#if data.isOwner}
+					<!--
+						A checkbox, not a click on the photograph.
+
+						Clicking a photograph opens it, and that has to keep being true —
+						taking over the primary action of a gallery so that management can
+						borrow it is how a viewer becomes a file manager by accident.
+						Shift extends from the last one checked.
+					-->
+					<button
+						type="button"
+						class="tick"
+						role="checkbox"
+						aria-checked={isSelected(photo.id)}
+						aria-label="Select {photo.alt || 'photograph'}"
+						onclick={(e) => toggle(i, photo.id, e.shiftKey)}
+					>
+						<svg viewBox="0 0 16 16" aria-hidden="true">
+							<path
+								d="M3.5 8.5l3 3 6-6.5"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</button>
+				{/if}
 				<!-- A real link, so it can be opened in a new tab, copied, and
 				     followed without JavaScript. The click handler upgrades it to an
 				     in-place overlay when it can. -->
@@ -408,6 +561,108 @@
 	figure a {
 		display: block;
 		cursor: zoom-in;
+	}
+
+	figure {
+		position: relative;
+	}
+
+	/*
+	 * The blue box with a white tick, in the corner of the frame.
+	 *
+	 * Quiet until the photograph is approached, and permanent once it is chosen —
+	 * a checked box that faded out when the cursor left would make a selection
+	 * impossible to survey.
+	 */
+	.tick {
+		position: absolute;
+		top: 0.5rem;
+		left: 0.5rem;
+		z-index: 2;
+		display: grid;
+		place-items: center;
+		width: 1.4rem;
+		height: 1.4rem;
+		padding: 0;
+		border: 1px solid var(--color-hairline);
+		background: var(--color-surface-raised);
+		color: transparent;
+		cursor: pointer;
+		opacity: 0;
+		transition:
+			opacity var(--duration-hover) var(--ease-out-soft),
+			background-color 120ms linear;
+	}
+
+	.tick svg {
+		width: 0.9rem;
+		height: 0.9rem;
+	}
+
+	figure:hover .tick,
+	figure:focus-within .tick,
+	.tick[aria-checked='true'] {
+		opacity: 1;
+	}
+
+	.tick[aria-checked='true'] {
+		background: var(--color-select);
+		border-color: var(--color-select);
+		color: #fff;
+	}
+
+	/* The photograph itself dims, so a selection reads from across the page
+	   rather than only at the corners. */
+	figure.selected :global(.frame) {
+		outline: 2px solid var(--color-select);
+		outline-offset: 2px;
+	}
+
+	.ribbon {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		max-width: 78rem;
+		margin: 0 auto 1rem;
+		padding: 0.6rem 1.5rem;
+		border-top: 1px solid var(--color-hairline);
+		border-bottom: 1px solid var(--color-hairline);
+		font-size: 0.88rem;
+		color: var(--color-ink-muted);
+	}
+
+	.ribbon-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	/* Square corners, like every other control here. */
+	.ribbon button {
+		font: inherit;
+		font-size: 0.82rem;
+		padding: 0.3rem 0.7rem;
+		border: 1px solid var(--color-hairline);
+		background: none;
+		color: var(--color-ink-muted);
+		cursor: pointer;
+	}
+
+	.ribbon button:hover:not(:disabled) {
+		background: var(--color-surface-sunken);
+		color: var(--color-ink);
+	}
+
+	.ribbon button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.ribbon .danger:hover:not(:disabled) {
+		color: var(--color-danger, #b42318);
+		border-color: currentColor;
+		background: none;
 	}
 
 	/* Same measure and padding as the grid, so every element on the page shares
