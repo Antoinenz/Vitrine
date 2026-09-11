@@ -177,7 +177,10 @@ Each stage ships on its own.
    custom order.~~ Done, with one thing the plan missed: switching to custom
    order has to seed every key from the order on screen first, or the first drag
    reshuffles the whole gallery.
-5. **Photo selection** — checkboxes and the action ribbon, inside a collection.
+5. ~~**Photo selection** — checkboxes and the action ribbon, inside a
+   collection.~~ Done. Clicking a photograph still opens it; the checkbox is a
+   separate target, so the gallery's primary action is not borrowed for
+   management.
 
 The **motion customiser** is deliberately unnumbered, because where it belongs
 is a real question. It is not part of the manager, but it is the tool for
