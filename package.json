@@ -20,7 +20,7 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
 		"seed": "vite-node scripts/seed.ts",
-		"deploy:test": "bash scripts/deploy-test.sh"
+		"deploy": "bash scripts/deploy.sh"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
